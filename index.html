@@ -1,0 +1,241 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>The Luminary 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Teko:wght@500;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/ui/style.css">
+<style>:root{padding:0!important} html,body{background:#060913;margin:0;height:100%;overflow:hidden}</style>
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.min.js","three/addons/":"./vendor/three/addons/"}}</script>
+<div class="relative w-full h-full flex flex-col justify-between overflow-hidden" id="luminary-root" style="position:fixed;inset:0">
+
+    <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0"></canvas>
+
+    <!-- START SCREEN -->
+    <div id="startScreen" class="absolute inset-0 z-50 flex flex-col items-center justify-center p-4" style="background:radial-gradient(ellipse at center, rgba(6,9,19,.55) 0%, rgba(6,9,19,.9) 100%)">
+        <div class="glass-panel max-w-xl w-full rounded-3xl p-8 border border-slate-700 text-center shadow-2xl">
+            <h1 class="smash-font text-6xl md:text-8xl font-black tracking-wider text-cyan-400 mb-2 uppercase drop-shadow-lg">THE LUMINARY</h1>
+            <p class="text-slate-400 text-sm tracking-widest uppercase mb-8 font-semibold">Super Smash Bros Arena &middot; 3D</p>
+            
+            <div class="flex flex-col gap-3">
+                <button id="easyModeBtn" class="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold px-8 py-3.5 rounded-2xl transition shadow-xl shadow-emerald-500/40 text-lg uppercase tracking-wider">
+                    Easy Mode (Slow &amp; Defensive Bot)
+                </button>
+                <button id="hardModeBtn" class="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white font-extrabold px-8 py-3.5 rounded-2xl transition shadow-xl shadow-rose-500/40 text-lg uppercase tracking-wider">
+                    Hard Mode (Aggressive Bot)
+                </button>
+                <button id="trainingModeBtn" class="bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/40 font-extrabold px-8 py-3.5 rounded-2xl transition shadow-xl text-lg uppercase tracking-wider">
+                    Training Mode (Dummy)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- COUNTDOWN SCREEN -->
+    <div id="countdownScreen" class="hidden absolute inset-0 z-40 bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+        <span id="countdownText" class="smash-font text-9xl font-black text-cyan-400 pulse-glow-red tracking-wider">3</span>
+    </div>
+
+    <!-- TOP HUD: PLAYER 1 & AI BOT STATUS -->
+    <div id="gameHud" class="hidden relative z-10 w-full p-4 flex justify-between items-start pointer-events-none">
+        
+        <!-- PLAYER 1 HUD (TOP-LEFT) -->
+        <div class="glass-panel rounded-2xl p-4 w-72 pointer-events-auto border-l-4 border-l-cyan-400 transition-all duration-300">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-black tracking-widest text-cyan-400 uppercase">P1 • THE LUMINARY</span>
+                <span id="p1DashBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-500/50">DASH READY</span>
+            </div>
+
+            <!-- Damage Percentage -->
+            <div class="flex items-baseline justify-between my-1">
+                <div class="flex items-baseline">
+                    <span id="p1Damage" class="smash-font text-5xl font-bold tracking-tight text-white leading-none">0</span>
+                    <span class="smash-font text-2xl font-bold text-slate-400 ml-0.5">%</span>
+                </div>
+                <!-- Stock Pips -->
+                <div id="p1Stocks" class="flex gap-1.5 items-center"><div class="w-3.5 h-3.5 rounded-full bg-cyan-400 border border-cyan-200 shadow-md shadow-cyan-500/50"></div><div class="w-3.5 h-3.5 rounded-full bg-cyan-400 border border-cyan-200 shadow-md shadow-cyan-500/50"></div><div class="w-3.5 h-3.5 rounded-full bg-cyan-400 border border-cyan-200 shadow-md shadow-cyan-500/50"></div></div>
+            </div>
+
+            <!-- Jump Dots Indicator -->
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-700/50 text-xs text-slate-400">
+                <span>Mid-Air Jumps (4 Max)</span>
+                <div id="p1JumpDots" class="flex gap-1"><div class="w-2.5 h-2.5 rounded-full bg-cyan-400"></div><div class="w-2.5 h-2.5 rounded-full bg-cyan-400"></div><div class="w-2.5 h-2.5 rounded-full bg-cyan-400"></div><div class="w-2.5 h-2.5 rounded-full bg-cyan-400"></div></div>
+            </div>
+        </div>
+
+        <!-- STAGE TITLE / CENTER GAME INFO -->
+        <div class="flex flex-col items-center pointer-events-auto">
+            <div class="glass-panel px-5 py-1.5 rounded-full text-center border border-slate-700/60 mb-2">
+                <span id="modeDisplayLabel" class="text-xs font-extrabold tracking-widest text-slate-300 uppercase">MODE: HARD</span>
+            </div>
+            <button id="toggleControlsBtn" class="text-[11px] font-bold text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 px-3 py-1 rounded-md transition backdrop-blur">
+                Press 'H' for Controls
+            </button>
+        </div>
+
+        <!-- AI BOT HUD (TOP-RIGHT) -->
+        <div class="glass-panel rounded-2xl p-4 w-72 pointer-events-auto border-r-4 border-r-rose-500 transition-all duration-300 text-right">
+            <div class="flex justify-between items-center mb-1">
+                <span id="aiDiffLabel" class="text-[11px] font-bold text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">Hard Bot</span>
+                <span class="text-xs font-black tracking-widest text-rose-400 uppercase">P2 • AI BOT</span>
+            </div>
+
+            <!-- Damage Percentage -->
+            <div class="flex items-baseline justify-between my-1 flex-row-reverse">
+                <div class="flex items-baseline">
+                    <span id="p2Damage" class="smash-font text-5xl font-bold tracking-tight text-white leading-none">0</span>
+                    <span class="smash-font text-2xl font-bold text-slate-400 ml-0.5">%</span>
+                </div>
+                <!-- Stock Pips -->
+                <div id="p2Stocks" class="flex gap-1.5 items-center"><div class="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-300 shadow-md shadow-rose-500/50"></div><div class="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-300 shadow-md shadow-rose-500/50"></div><div class="w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-300 shadow-md shadow-rose-500/50"></div></div>
+            </div>
+
+            <div id="aiDescText" class="text-[11px] text-slate-400 mt-2 pt-2 border-t border-slate-700/50">
+                Aggressive Ledge Guard &amp; Counter-Rolls Active
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTTOM LEFT MENU BUTTON & PANEL -->
+    <div id="inGameMenuContainer" class="hidden absolute bottom-6 left-6 z-30 pointer-events-auto">
+        <button id="menuToggleBtn" class="glass-panel bg-slate-900/90 hover:bg-slate-800 text-cyan-400 font-extrabold px-5 py-3 rounded-2xl border border-cyan-500/40 shadow-xl uppercase tracking-wider text-sm flex items-center gap-2">
+            <span>⚙ Menu</span>
+        </button>
+
+        <!-- Dropdown Menu Box -->
+        <div id="menuDropdown" class="hidden absolute bottom-14 left-0 w-60 glass-panel rounded-2xl p-3 border border-slate-700 shadow-2xl flex flex-col gap-2">
+            <button id="menuResumeBtn" class="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition text-left uppercase tracking-wide text-xs">
+                ▶ Resume Match
+            </button>
+            <button id="menuRestartBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-xl transition text-left uppercase tracking-wide text-xs">
+                🔄 Restart Match
+            </button>
+            <button id="menuQuitBtn" class="bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-500/30 font-bold px-4 py-2.5 rounded-xl transition text-left uppercase tracking-wide text-xs">
+                🚪 Quit to Main Menu
+            </button>
+        </div>
+    </div>
+
+    <!-- TRAINING MODE CONTROL PANEL (FLOATING) -->
+    <div id="trainingControlPanel" class="hidden absolute top-24 left-6 z-30 w-72 glass-panel rounded-2xl p-4 border border-cyan-500/40 shadow-2xl">
+        <div class="flex justify-between items-center mb-3 border-b border-slate-700 pb-2">
+            <span class="text-xs font-black tracking-widest text-cyan-400 uppercase">Training Settings</span>
+            <button id="closeTrainingPanelBtn" class="text-slate-400 hover:text-white text-xs font-bold bg-slate-800 px-2 py-0.5 rounded">Hide Panel</button>
+        </div>
+        <div class="flex flex-col gap-2 text-xs text-slate-300">
+            <div class="flex justify-between items-center bg-slate-900/80 p-2 rounded-lg">
+                <span>Bot Behavior</span>
+                <span class="font-bold text-cyan-400">Idle / Dummy</span>
+            </div>
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+                • Bot does not attack or move.<br>
+                • Bot takes standard knockback.<br>
+                • Infinite stocks enabled.
+            </p>
+        </div>
+    </div>
+    <button id="openTrainingPanelBtn" class="hidden absolute top-24 left-6 z-30 glass-panel px-3 py-1.5 rounded-lg text-xs font-bold text-cyan-400 border border-cyan-500/40 hover:bg-slate-800 transition">
+        Show Training Panel
+    </button>
+
+    <!-- CENTER-BOTTOM: AIM MATRIX HUD VISUALIZER -->
+    <div id="aimMatrixHud" class="hidden relative z-10 w-full pb-4 flex justify-center items-end pointer-events-none">
+        <div class="glass-panel px-5 py-3 rounded-2xl flex items-center gap-4 border border-slate-700/60 pointer-events-auto">
+            <div class="relative w-12 h-12 rounded-full border border-slate-600/80 bg-slate-900/90 flex items-center justify-center">
+                <div class="absolute w-4 h-4 rounded-full border border-dashed border-slate-500/50"></div>
+                <span id="aimMatrixArrow" class="text-2xl font-black text-cyan-400 transition-all duration-100">⬇</span>
+            </div>
+
+            <div class="flex flex-col">
+                <span class="text-[10px] font-black tracking-widest text-slate-400 uppercase">AIM MATRIX STATUS</span>
+                <span id="aimMatrixLabel" class="text-sm font-bold text-slate-200">DOWN ATTACK / SPIKE</span>
+                <span id="aimVectorText" class="text-[10px] font-mono text-slate-400">dx: 4 | dy: 244</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTROLS CHEAT SHEET MODAL OVERLAY -->
+    <div id="controlsModal" class="hidden absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="glass-panel max-w-2xl w-full rounded-2xl p-6 border border-slate-700 text-slate-200 relative">
+            <button id="closeControlsBtn" class="absolute top-4 right-4 text-slate-400 hover:text-white text-xl font-bold">✕</button>
+            
+            <h2 class="smash-font text-3xl font-bold text-cyan-400 tracking-wide mb-4">THE LUMINARY - CONTROLS &amp; MECHANICS</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs max-h-[70vh] overflow-y-auto pr-1">
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">MOVEMENT &amp; LEDGES</h3>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">A / D</span> Move (always allowed)</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Spacebar</span> Jump / leave ledge (0.3s after a move)</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Ledges</span> One fighter per ledge: the newcomer kicks you off (3s no ledge). Hang 3s and you're kicked off for 4s.</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Move lag</span> After ANY move you wait 0.7s before the next one.</p>
+                </div>
+
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">GRAB, SHIELD &amp; ROLL</h3>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Q</span> Dash &amp; Grab (1 per airtime)</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">E</span> Shield (counters everything except grab)</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">E + Scroll</span> Roll (only while shielding, 2s cooldown, stops at the ledge)</p>
+                </div>
+
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">ATTACKS</h3>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Right Click</span> J attack: aim-matrix slash (hitbox follows the swing)</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Left Click</span> Mouse Dash attack</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">J key</span> no longer does anything</p>
+                </div>
+
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <h3 class="font-bold text-violet-300 text-sm mb-2 border-b border-slate-700 pb-1">F SPECIALS (only 2 in the air)</h3>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Hold F</span> Luminary Core: charge up to 1.5s, release fires a slow straight orb at your cursor</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Tap F + Side</span> Blink Slash: 220-unit teleport + slash</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Tap F + Up</span> Rising Spiral: multi-hit recovery, uses all jumps</p>
+                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Tap F + Down</span> Ground: Stomp (stuns in front) / Air: Headbutt dive</p>
+                    <p class="text-slate-400">Touch the ground to refill air F moves.</p>
+                </div>
+
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">COUNTERS</h3>
+                    <p class="text-slate-300 leading-relaxed">
+                        • <b>Shield</b> counters all but Grab<br>
+                        • <b>Grab</b> loses to every active move (not Headbutt) but beats Shield<br>
+                        • <b>Headbutt</b> counters all but Grab &amp; Shield<br>
+                        • <b>J attack</b> counters all but Shield<br>
+                        • <b>Core</b> counters F moves &amp; Grab (not Dash / J)
+                    </p>
+                </div>
+
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">DIFFICULTY SYSTEM</h3>
+                    <p class="text-slate-300 leading-relaxed">
+                        • <b>Easy:</b> Bot moves slower, attacks less, uses shield often.
+                        <br>• <b>Hard:</b> Uses every move, zones with Cores, learns your habits between matches.
+                        <br>• <b>Training:</b> Dummy practice mode.
+                        <br>• <b>Rule:</b> Reaching 250% damage instantly causes a K.O.
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-6 text-center">
+                <button id="startPlayBtn" class="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold px-8 py-2.5 rounded-xl transition shadow-lg shadow-cyan-500/30 uppercase tracking-wider text-sm">
+                    Resume Match
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- DRAMATIC END SCREEN (WIN / LOSE) -->
+    <div id="gameOverModal" class="hidden absolute inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-4">
+        <h1 id="winnerText" class="smash-font text-6xl md:text-8xl font-black tracking-wider pulse-glow-red text-white mb-2">PLAYER 1 WINS!</h1>
+        <p class="text-slate-300 text-lg mb-8">GAME SET!</p>
+        <div class="flex gap-4">
+            <button id="rematchBtn" class="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold px-8 py-3 rounded-2xl transition shadow-xl shadow-cyan-500/40 text-lg uppercase tracking-widest">
+                Rematch
+            </button>
+            <button id="exitBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-extrabold px-8 py-3 rounded-2xl transition shadow-xl text-lg uppercase tracking-widest border border-slate-700">
+                Exit
+            </button>
+        </div>
+    </div>
+
+    
+</div>
+<script type="module" src="src/main.js"></script>
+
+</body></html>
