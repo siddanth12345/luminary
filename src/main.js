@@ -7,10 +7,13 @@ import {
 import { held, actionsFor } from './controls.js';
 import { UI } from './ui.js';
 import { View } from './render/view.js';
+import { Online, leaveRoom, sendAct, sendHeld, requestRematch } from './net/online.js';
+import { LobbyUI } from './net/lobbyUI.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new View($('gameCanvas'));
 const ui = new UI({ $, closeMenu: () => $('menuDropdown').classList.add('hidden') });
+const lobby = new LobbyUI({ root: $('luminary-root'), openBtn: $('onlineBtnStart') });
 
 // ------------------------------------------------------------------ input
 // Every gameplay control goes through src/controls.js, so each one can be rebound in the
@@ -30,6 +33,11 @@ function doAction(action) {
     if (action === 'tutorial') { ui.toggleTutorial(); return; }
     if (action === 'fullscreen') { toggleFullscreen(); return; }
     if (S.gameState !== 'playing') return;
+    if (S.online === 'guest') {                                    // the host runs the match: forward the input
+        const aim = { wx: mouse.worldX, wy: mouse.worldY, dir: mouse.direction };
+        if (['jump', 'attack', 'dash', 'grab', 'roll', 'special'].includes(action)) sendAct(action, aim);
+        return;
+    }
     switch (action) {
         case 'jump': p1.jump(); break;
         case 'attack': p1.attack(mouse.direction); break;
@@ -40,6 +48,10 @@ function doAction(action) {
     }
 }
 function releaseAction(action) {
+    if (S.online === 'guest') {
+        if (action === 'special' && S.gameState === 'playing') sendAct('specialUp', { wx: mouse.worldX, wy: mouse.worldY, dir: mouse.direction });
+        return;
+    }
     if (action === 'special') {
         if (S.gameState === 'playing') p1.fRelease(mouse.direction, mouse.worldX, mouse.worldY);
         else p1.cancelF();
@@ -53,26 +65,34 @@ window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     held.add(e.code);
     for (const a of acts) doAction(a);
+    if (S.online === 'guest') sendHeld();
 });
 window.addEventListener('keyup', (e) => {
     const was = held.has(e.code);
     held.delete(e.code);
     if (was) for (const a of actionsFor(e.code)) releaseAction(a);
+    if (S.online === 'guest') sendHeld();
 });
 // losing focus while holding a key must not leave a charge (or a direction) stuck
-window.addEventListener('blur', () => { p1.cancelF(); held.clear(); });
+window.addEventListener('blur', () => { p1.cancelF(); held.clear(); if (S.online === 'guest') { sendAct('cancelF'); sendHeld(); } });
 
+let lastAimSent = 0;
 window.addEventListener('mousemove', (e) => {
     mouse.x = e.clientX;
     mouse.y = e.clientY;
     view.setPointer(e.clientX, e.clientY);   // pointer -> world position on the play plane
     updateAimMatrix();
+    if (S.online === 'guest') {              // keep the host's copy of my aim fresh (throws, dashes, Core)
+        const now = performance.now();
+        if (now - lastAimSent > 50) { lastAimSent = now; sendHeld({ wx: mouse.worldX, wy: mouse.worldY }); }
+    }
 });
 
 window.addEventListener('wheel', (e) => {
     audio.init();
     if (S.gameState !== 'playing') return;
     e.preventDefault();
+    if (S.online === 'guest') { sendAct('roll'); return; }
     p1.executeRoll();                        // hold shield + scroll
 }, { passive: false });
 
@@ -84,12 +104,14 @@ window.addEventListener('mousedown', (e) => {
     const code = 'Mouse' + e.button;
     held.add(code);
     for (const a of actionsFor(code)) doAction(a);
+    if (S.online === 'guest') sendHeld();
 });
 window.addEventListener('mouseup', (e) => {
     const code = 'Mouse' + e.button;
     const was = held.has(code);
     held.delete(code);
     if (was) for (const a of actionsFor(code)) releaseAction(a);
+    if (S.online === 'guest') sendHeld();
 });
 
 // ------------------------------------------------------------------ menus
@@ -99,10 +121,11 @@ window.addEventListener('click', () => { if (!menuDropdown.classList.contains('h
 $('menuResumeBtn').addEventListener('click', () => menuDropdown.classList.add('hidden'));
 $('menuTutorialBtn').addEventListener('click', () => { menuDropdown.classList.add('hidden'); ui.openTutorial(); });
 $('menuControlsBtn').addEventListener('click', () => { menuDropdown.classList.add('hidden'); ui.openSettings(); });
-$('menuRestartBtn').addEventListener('click', () => { menuDropdown.classList.add('hidden'); startMatchSequence(S.gameMode); });
+$('menuRestartBtn').addEventListener('click', () => { menuDropdown.classList.add('hidden'); if (!S.online) startMatchSequence(S.gameMode); });
 
 function backToMenu() {
     ui.guide.stop();
+    if (S.online || Online.role) leaveRoom();
     for (const id of ['gameHud', 'aimMatrixHud', 'inGameMenuContainer', 'trainingControlPanel', 'openTrainingPanelBtn']) $(id).classList.add('hidden');
     dramaticZoom.active = false;
     S.gameState = 'start';
@@ -110,7 +133,7 @@ function backToMenu() {
 }
 $('menuQuitBtn').addEventListener('click', () => { menuDropdown.classList.add('hidden'); backToMenu(); });
 $('exitBtn').addEventListener('click', () => { gameOverModal.classList.add('hidden'); backToMenu(); });
-$('rematchBtn').addEventListener('click', () => startMatchSequence(S.gameMode));
+$('rematchBtn').addEventListener('click', () => { if (S.online) requestRematch(); else startMatchSequence(S.gameMode); });
 
 const trainingPanel = $('trainingControlPanel');
 const openTrainingBtn = $('openTrainingPanelBtn');
@@ -143,6 +166,7 @@ function frame(now) {
     requestAnimationFrame(frame);
 }
 
+Online.onLeft = (msg) => { backToMenu(); lobby.open(msg); };
 updateAimMatrix();
 requestAnimationFrame(frame);
 

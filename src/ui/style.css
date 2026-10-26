@@ -105,3 +105,18 @@ kbd{display:inline-block;min-width:22px;text-align:center;padding:1px 7px;border
 .lm-guidecta span{color:#94a3b8;font-size:12px}
 .lm-guidecta .lm-btn{white-space:nowrap}
 @media (max-width:560px){.lm-guidecta{flex-direction:column;align-items:stretch}}
+
+/* online dialog */
+.lm-field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8}
+.lm-field input,.lm-joinrow input{background:#0a1626;border:1px solid #27465c;border-radius:10px;color:#e2e8f0;padding:9px 12px;font-size:14px;font-weight:700;outline:none;min-width:0}
+.lm-field input:focus,.lm-joinrow input:focus{border-color:#22d3ee}
+.lm-online-split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:560px){.lm-online-split{grid-template-columns:1fr}}
+.lm-joinrow{display:flex;gap:8px}
+.lm-joinrow input{width:92px;text-transform:uppercase;letter-spacing:.3em;text-align:center}
+.lm-code{margin-top:12px;text-align:center;padding:10px;border-radius:12px;background:#0b2230;border:1px dashed #22d3ee}
+.lm-code span{display:block;font-size:10px;letter-spacing:.16em;color:#67e8f9}
+.lm-code b{font-size:34px;letter-spacing:.3em;color:#fff;font-weight:900;padding-left:.3em}
+.lm-status{min-height:20px;margin:12px 0 4px;font-size:13px;font-weight:700;color:#34d399}
+.lm-status.bad{color:#fb7185}
+#onlineBtnStart{border:0}

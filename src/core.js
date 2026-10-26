@@ -7,13 +7,23 @@
 import { SoundEngine } from './audio.js';
 import { isDown } from './controls.js';
 
-export const S = { screenShake: 0, gameMode: 'hard', gameState: 'start' };
+export const S = { screenShake: 0, gameMode: 'hard', gameState: 'start', online: null };   // online: null | 'host' | 'guest'
 export const audio = new SoundEngine();
+/** everything the host has produced since the last network snapshot (effects, sounds, particles) */
+export const outbox = [];
+export const NETHOOK = { send: null };
+// online host: forward every sound the simulation plays so the guest hears it too
+for (const name of Object.getOwnPropertyNames(Object.getPrototypeOf(audio))) {
+    if (!/^play/.test(name) || typeof audio[name] !== 'function') continue;
+    const orig = audio[name].bind(audio);
+    audio[name] = (...args) => { if (S.online === 'host') outbox.push({ k: 'a', m: name, a: args }); return orig(...args); };
+}
 export const koBeams = [];
 export const shockwaves = [];
 export const fxEvents = [];
 export const orbs = [];                    // Luminary Core projectiles
-function fx(type, x, y, a = 0, b = 0) { fxEvents.push({ type, x, y, a, b }); }
+let orbSerial = 0;
+function fx(type, x, y, a = 0, b = 0) { fxEvents.push({ type, x, y, a, b }); if (S.online === 'host') outbox.push({ k: 'f', e: [type, x, y, a, b] }); }
 
 const WORLD = {
     width: 3800,
@@ -465,8 +475,8 @@ class Fighter {
                     dx = this.x < stageCenterX ? -1 : 1;
                     dy = -0.4;
                 } else {
-                    dx = mouse.worldX - this.x;
-                    dy = mouse.worldY - this.y;
+                    dx = (this.remoteAim ? this.remoteAim.x : mouse.worldX) - this.x;
+                    dy = (this.remoteAim ? this.remoteAim.y : mouse.worldY) - this.y;
                 }
 
                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -505,7 +515,7 @@ class Fighter {
             this.vy = Math.min(this.vy + WORLD.gravity * 0.75, WORLD.terminalVelocity);
             this.x += this.vx;
             this.y += this.vy;
-            this.checkStageCollision();
+            this.checkStageCollision(true);                  // ragdolled: bounce off the stage instead of sliding along it
             return;
         }
 
@@ -716,7 +726,7 @@ class Fighter {
         const color = full ? (this === p1 ? '#a855f7' : '#fb923c') : this.color;   // full charge: blue -> purple, red -> orange
         orbs.push({
             x: this.x + dx * (40 + r * 0.4), y: this.y + dy * (40 + r * 0.4),
-            vx: dx * speed, vy: dy * speed, r, charge, owner: this, life: 260, color,
+            vx: dx * speed, vy: dy * speed, r, charge, owner: this, life: 260, color, id: ++orbSerial,
         });                                                   // flies straight along the aim: no homing
         this.setMove('CORE', 24);
         this.specialKind = 'CORE'; this.specialT = 0; this.specialDur = 24;
@@ -913,7 +923,9 @@ class Fighter {
         audio.playHit(false);
     }
 
-    checkStageCollision() {
+    checkStageCollision(bounce = false) {
+        const vx0 = this.vx, vy0 = this.vy;                  // speed on impact (used for the ragdoll bounce)
+        const BOUNCE = 0.62, MIN_BOUNCE = 3.2;
         const platLeft = STAGE.x;
         const platRight = STAGE.x + STAGE.width;
         const platTop = STAGE.y;
@@ -939,7 +951,16 @@ class Fighter {
             if (minOverlapY < minOverlapX) {
                 if (overlapTop < overlapBottom && this.vy >= 0) {
                     this.y = platTop - this.height / 2;
+                    if (bounce && vy0 > MIN_BOUNCE) {         // land hard: bounce back up with the knockback that is left
+                        this.vy = -vy0 * BOUNCE;
+                        this.vx = vx0 * 0.9;
+                        this.grounded = false;
+                        fx('hit', this.x, platTop, Math.min(16, vy0 * 0.6), -Math.PI / 2);
+                        S.screenShake = Math.max(S.screenShake, Math.min(10, vy0 * 0.4));
+                        return;
+                    }
                     this.vy = 0;
+                    if (bounce) this.vx *= 0.35;               // settled: no skating across the floor
                     this.grounded = true;
                     this.jumpsLeft = this.maxJumps;
                     this.canMouseDash = true;
@@ -948,7 +969,7 @@ class Fighter {
                     this.airSpecials = 0;                     // touching the ground recharges air F moves
                 } else if (overlapBottom <= overlapTop && this.vy < 0) {
                     this.y = platBottom + this.height / 2;
-                    this.vy = 0;
+                    this.vy = bounce ? -vy0 * BOUNCE : 0;      // knocked into the underside: rebound downward
                 }
             } else {
                 if (overlapLeft < overlapRight) {
@@ -956,7 +977,8 @@ class Fighter {
                 } else {
                     this.x = platRight + this.width / 2;
                 }
-                this.vx = 0;
+                this.vx = bounce ? -vx0 * BOUNCE : 0;          // rebound off the side wall with the speed that is left
+                if (bounce && Math.abs(vx0) > MIN_BOUNCE) fx('hit', this.x, this.y, Math.min(16, Math.abs(vx0) * 0.6), vx0 > 0 ? Math.PI : 0);
             }
         } else {
             this.grounded = false;
@@ -1101,6 +1123,7 @@ class Fighter {
         createExplosion(this.x, this.y);
         fx('ko', this.x, this.y);
 
+        if (S.online === 'host') outbox.push({ k: 'b', e: [this.x, this.y] });
         koBeams.push({
             startX: this.x,
             startY: this.y,
@@ -1112,6 +1135,12 @@ class Fighter {
 
         if (this.stocks <= 0) {
             saveBotMemory();
+            if (S.online === 'host') {                       // human vs human: the other fighter wins
+                const winner = this === p1 ? p2 : p1;
+                triggerDramaticZoom(winner);
+                endGame(winner === p1 ? 'YOU WIN!' : 'YOU LOSE!', winner === p1 ? 'host' : 'guest');
+                return;
+            }
             triggerDramaticZoom(this.isAI ? p1 : p2);
             endGame(this.isAI ? "PLAYER 1 WINS!" : "AI BOT WINS!");
         } else {
@@ -1402,6 +1431,7 @@ class AIBot extends Fighter {
 
 const particles = [];
 function createParticles(x, y, color, count = 10) {
+    if (S.online === 'host') outbox.push({ k: 'p', e: [x, y, color, count] });
     for (let i = 0; i < count; i++) {
         particles.push({
             x: x,
@@ -1838,6 +1868,14 @@ function startMatchSequence(mode) {
     p1.reset(true);
     p2.reset(true);
     p2.shieldHold = 0;
+    p2.isAI = !S.online;                                   // online: p2 is a person
+    p2.remoteAim = null;
+    S.winnerRole = null;
+    remote.held = { left: false, right: false, shield: false };
+    resetSnapshotState();
+    for (const [, g] of guestOrbs) { const i = orbs.indexOf(g); if (i >= 0) orbs.splice(i, 1); }
+    guestOrbs.clear();
+    for (const f of [p1, p2]) { f._tx = undefined; f._ty = undefined; }
 
     const modeLabel = document.getElementById('modeDisplayLabel');
     const aiDiffLabel = document.getElementById('aiDiffLabel');
@@ -1853,6 +1891,12 @@ function startMatchSequence(mode) {
         modeLabel.textContent = "MODE: HARD";
         aiDiffLabel.textContent = "Hard Bot";
         aiDescText.textContent = "Learns your habits • Core zoning • Ledge Guard & Counter-Rolls";
+        document.getElementById('trainingControlPanel').classList.add('hidden');
+        document.getElementById('openTrainingPanelBtn').classList.add('hidden');
+    } else if (S.gameMode === 'online') {
+        modeLabel.textContent = "MODE: ONLINE 1v1";
+        aiDiffLabel.textContent = S.opponentName || 'Opponent';
+        aiDescText.textContent = S.online === 'host' ? 'You are hosting: you are the blue fighter' : 'Connected to the host: you are the blue fighter';
         document.getElementById('trainingControlPanel').classList.add('hidden');
         document.getElementById('openTrainingPanelBtn').classList.add('hidden');
     } else if (S.gameMode === 'training') {
@@ -1890,8 +1934,9 @@ function startMatchSequence(mode) {
 }
 
 const gameOverModal = document.getElementById('gameOverModal');
-function endGame(winnerText) {
+function endGame(winnerText, winnerRole = null) {
     S.gameState = 'gameover';
+    S.winnerRole = winnerRole;
     document.getElementById('winnerText').textContent = winnerText;
     setTimeout(() => {
         gameOverModal.classList.remove('hidden');
@@ -1901,6 +1946,151 @@ function endGame(winnerText) {
 // ---------------------------------------------------------------------------
 //  Fixed-timestep simulation (60 Hz)
 // ---------------------------------------------------------------------------
+
+/** walking / shielding for one fighter from a held-input state ({left,right,shield}) */
+function drive(f, h) {
+    const free = f.hitstun === 0 && f.dizzyTimer === 0 && f.clashStunTimer === 0 && !f.grabHolding &&
+        !f.isRolling && f.freezeTimer === 0;
+    if (free) {
+        // you can always walk (even during the 0.7 s move lock) - except while diving
+        if (!f.diving) {
+            const spd = f.fActive ? 6.75 : (f.spiralT > 0 ? 4.5 : 8.5);   // charging a core: 1.5x the old 4.5
+            if (h.left) { if (f.isHanging) f.isHanging = false; f.vx = -spd; f.facing = -1; }
+            if (h.right) { if (f.isHanging) f.isHanging = false; f.vx = spd; f.facing = 1; }
+        }
+        f.isShielding = !!h.shield && f.canShield();
+    } else {
+        f.isShielding = false;
+    }
+}
+
+// ============================================================================
+//  Online play (host-authoritative). The host runs the whole simulation: its own
+//  fighter is p1, the guest's fighter is p2 steered by `remote`. The guest runs no
+//  simulation: it sends inputs and mirrors the host's snapshots, with itself as p1.
+// ============================================================================
+let netTick = 0;
+export const remote = { held: { left: false, right: false, shield: false } };
+
+/** an input event from the guest, applied to their fighter (host only) */
+export function applyRemote(ev) {
+    if (S.online !== 'host') return;
+    if (ev.t === 'held') { remote.held = { left: !!ev.left, right: !!ev.right, shield: !!ev.shield }; }
+    if (ev.wx !== undefined) p2.remoteAim = { x: ev.wx, y: ev.wy };
+    if (ev.t !== 'act' || S.gameState !== 'playing') return;
+    const f = p2;
+    switch (ev.a) {
+        case 'jump': f.jump(); break;
+        case 'attack': f.attack(ev.dir); break;
+        case 'dash': f.executeMouseDash(ev.wx, ev.wy); break;
+        case 'grab': f.executeGrabDash(ev.wx, ev.wy); break;
+        case 'roll': f.executeRoll(); break;
+        case 'special': f.fPress(ev.dir); break;
+        case 'specialUp': f.fRelease(ev.dir, ev.wx, ev.wy); break;
+        case 'cancelF': f.cancelF(); break;
+    }
+}
+
+const FKEYS = Object.keys(new Fighter(0, 0, '#000', 'k')).filter(k => !['color', 'name', 'isAI', 'startX', 'width', 'height'].includes(k));
+const REFS = ['grabHolding', 'grabbedBy', 'grabVictim', 'suplexTarget'];
+const SWING_NAMES = Object.keys(SWING);
+const r2 = (v) => typeof v === 'number' ? Math.round(v * 100) / 100 : v;
+const idxOf = (f) => f === p1 ? 0 : f === p2 ? 1 : -1;
+let lastSent = [{}, {}];
+let fullEvery = 0;
+
+function packFighter(f) {
+    const o = {};
+    for (const k of FKEYS) {
+        if (REFS.includes(k)) { o[k] = idxOf(f[k]); continue; }
+        const v = f[k];
+        if (k === 'swing') o[k] = v ? SWING_NAMES.find(n => SWING[n] === v) || null : null;
+        else if (k === 'ghosts') o[k] = v.slice(-8).map(g => ({ x: r2(g.x), y: r2(g.y), alpha: r2(g.alpha), color: g.color }));
+        else if (k === 'activeHitbox') o[k] = v ? { ...v, x: r2(v.x), y: r2(v.y) } : null;
+        else if (k === 'cd' || k === 'activeMove') o[k] = v ? { ...v } : v;
+        else if (typeof v === 'number') o[k] = r2(v);
+        else o[k] = v;
+    }
+    return o;
+}
+
+/** a compact (delta-coded) description of the whole match for the guest */
+export function snapshot() {
+    const full = (fullEvery++ % 60) === 0;
+    const fs = [p1, p2].map((f, i) => {
+        const cur = packFighter(f), out = {};
+        for (const k in cur) {
+            const j = JSON.stringify(cur[k]);
+            if (full || lastSent[i][k] !== j) { out[k] = cur[k]; lastSent[i][k] = j; }
+        }
+        return out;
+    });
+    const ev = outbox.splice(0, outbox.length);
+    return {
+        f: fs, gs: S.gameState, win: S.winnerRole || null, sh: Math.round(S.screenShake * 10) / 10,
+        o: orbs.map(o => ({ id: o.id, x: r2(o.x), y: r2(o.y), vx: r2(o.vx), vy: r2(o.vy), r: r2(o.r), c: r2(o.charge), own: idxOf(o.owner) })),
+        ev,
+    };
+}
+export function resetSnapshotState() { lastSent = [{}, {}]; fullEvery = 0; outbox.length = 0; }
+
+const guestOrbs = new Map();
+const guestFlip = (i) => i < 0 ? -1 : 1 - i;             // host's p1 is the guest's p2 and vice versa
+function guestSmooth() {
+    for (const f of [p1, p2]) {
+        f.px = f.x; f.py = f.y;
+        if (f._tx === undefined) continue;
+        const d = Math.hypot(f._tx - f.x, f._ty - f.y);
+        if (d > 260 || f._snap) { f.x = f._tx; f.y = f._ty; f._snap = false; f._teleported = true; }
+        else { f.x += (f._tx - f.x) * 0.45; f.y += (f._ty - f.y) * 0.45; }
+    }
+    for (const o of orbs) { o.x += o.vx * 0.5; o.y += o.vy * 0.5; }
+}
+export function applySnapshot(s) {
+    const mine = [p2, p1];                                // snapshot index -> local fighter
+    s.f.forEach((d, i) => {
+        const f = mine[i];
+        for (const k in d) {
+            const v = d[k];
+            if (k === 'x') { if (f._tx === undefined) { f.x = v; } f._tx = v; }
+            else if (k === 'y') { if (f._ty === undefined) { f.y = v; } f._ty = v; }
+            else if (k === 'px' || k === 'py') continue;
+            else if (k === 'swing') f.swing = v ? SWING[v] : null;
+            else if (REFS.includes(k)) { const g = guestFlip(v); f[k] = g < 0 ? null : (g === 0 ? p1 : p2); }
+            else if (k === 'facing') f.facing = v;
+            else f[k] = v;
+        }
+        if (d._teleported) f._snap = true;
+    });
+    // orbs, matched by id so the renderer keeps one object per projectile
+    const seen = new Set();
+    for (const o of s.o) {
+        seen.add(o.id);
+        const own = guestFlip(o.own) === 0 ? p1 : p2;
+        const color = o.c >= 1 ? (own === p1 ? '#a855f7' : '#fb923c') : own.color;
+        let g = guestOrbs.get(o.id);
+        if (!g) { g = { id: o.id }; guestOrbs.set(o.id, g); orbs.push(g); }
+        Object.assign(g, { x: o.x, y: o.y, vx: o.vx, vy: o.vy, r: o.r, charge: o.c, owner: own, color, life: 200 });
+    }
+    for (const [id, g] of guestOrbs) if (!seen.has(id)) { guestOrbs.delete(id); const i = orbs.indexOf(g); if (i >= 0) orbs.splice(i, 1); }
+    S.screenShake = Math.max(S.screenShake, s.sh || 0);
+    // game state
+    if (s.gs === 'gameover') {
+        if (S.gameState !== 'gameover') {
+            const winner = s.win === 'host' ? p2 : p1;
+            triggerDramaticZoom(winner);
+            endGame(s.win === 'guest' ? 'YOU WIN!' : 'YOU LOSE!', s.win);
+        }
+    } else if (S.gameState !== 'countdown' || s.gs === 'playing') S.gameState = s.gs;
+    // effects, sounds, particles the host produced since the last snapshot
+    for (const e of s.ev) {
+        if (e.k === 'f') fxEvents.push({ type: e.e[0], x: e.e[1], y: e.e[2], a: e.e[3], b: e.e[4] });
+        else if (e.k === 'a') { try { audio[e.m](...e.a); } catch (err) { /* sound not available */ } }
+        else if (e.k === 'p') createParticles(...e.e);
+        else if (e.k === 'b') koBeams.push({ startX: e.e[0], startY: e.e[1], targetX: STAGE.x + STAGE.width / 2, targetY: STAGE.y, alpha: 1.0, width: 32 });
+    }
+}
+
 export function step() {
     for (const f of [p1, p2]) {
         f.px = f.x; f.py = f.y;
@@ -1908,32 +2098,13 @@ export function step() {
         if (f.throwFxT > 0) f.throwFxT--;
     }
 
-    if (S.gameState === 'playing') {
-        const free = p1.hitstun === 0 && p1.dizzyTimer === 0 && p1.clashStunTimer === 0 && !p1.grabHolding &&
-            !p1.isRolling && p1.freezeTimer === 0;
-        if (free) {
-            // you can always walk (even during the 0.7 s move lock) - except while diving
-            if (!p1.diving) {
-                const spd = p1.fActive ? 6.75 : (p1.spiralT > 0 ? 4.5 : 8.5);   // charging a core: 1.5x the old 4.5
-                if (isDown('left')) {
-                    if (p1.isHanging) p1.isHanging = false;
-                    p1.vx = -spd;
-                    p1.facing = -1;
-                }
-                if (isDown('right')) {
-                    if (p1.isHanging) p1.isHanging = false;
-                    p1.vx = spd;
-                    p1.facing = 1;
-                }
-            }
-
-            p1.isShielding = isDown('shield') && p1.canShield();
-        } else {
-            p1.isShielding = false;
-        }
-
+    if (S.online === 'guest') {
+        guestSmooth();                                      // the host simulates; we only show what it sends
+    } else if (S.gameState === 'playing') {
+        drive(p1, { left: isDown('left'), right: isDown('right'), shield: isDown('shield') });
         p1.update();
-        p2.updateAI(p1);
+        if (S.online === 'host') drive(p2, remote.held);   // the guest's fighter, steered by their inputs
+        else p2.updateAI(p1);
         p2.update();
 
         updateOrbs();
@@ -1941,6 +2112,7 @@ export function step() {
         checkCombatCollisions(p1, p2);
         checkCombatCollisions(p2, p1);
     }
+    if (S.online === 'host' && NETHOOK.send && (++netTick % 2) === 0) NETHOOK.send(snapshot());
 
     for (let i = shockwaves.length - 1; i >= 0; i--) {
         const sw = shockwaves[i];
@@ -1987,5 +2159,5 @@ export function step() {
 export {
     WORLD, STAGE, BLAST_ZONES, dramaticZoom, keys, mouse, particles, p1, p2,
     Fighter, AIBot, updateAimMatrix, renderHUD, startMatchSequence, endGame, gameOverModal,
-    CHARGE_MAX,
+    CHARGE_MAX, triggerDramaticZoom,
 };

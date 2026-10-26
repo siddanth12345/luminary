@@ -203,7 +203,7 @@ export class UI {
     isOpen() { return !this.tut.classList.contains('lm-hidden') || !this.set.classList.contains('lm-hidden'); }
 
     /** keep the game frozen while a menu is open mid-match */
-    pause() { if (S.gameState === 'playing' && !window.__luminaryPaused) { window.__luminaryPaused = true; this.pausedByUI = true; } }
+    pause() { if (S.gameState === 'playing' && !S.online && !window.__luminaryPaused) { window.__luminaryPaused = true; this.pausedByUI = true; } }
     resume() { if (this.pausedByUI) { window.__luminaryPaused = false; this.pausedByUI = false; } }
 
     closeAll() {

@@ -13,3 +13,11 @@ Shield counters all but Grab · Grab loses to every active move (except Headbutt
 
 ## Layout
 `src/core.js` simulation · `src/main.js` input/loop · `src/render/*` Three.js view, fighter rig, effects.
+
+## Online 1v1 (work in progress)
+
+`Play Online` on the start screen creates or joins a room by 4-letter code.
+
+- The **host** runs the whole simulation (`src/core.js`); the **guest** sends inputs and mirrors snapshots (see "Online play" in core.js).
+- `src/net/transport.js` moves the messages. With no server configured (`src/net/config.js`) it uses a same-browser `BroadcastChannel`, which is enough to test with two tabs.
+- For real internet play, put a Supabase project URL and publishable key in `src/net/config.js`. Only Realtime broadcast channels are used, nothing is stored.
