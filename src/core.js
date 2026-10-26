@@ -5,6 +5,7 @@
 //  presentation fields (attackKind, specialKind, ...) never feed back in.
 // ============================================================================
 import { SoundEngine } from './audio.js';
+import { isDown } from './controls.js';
 
 export const S = { screenShake: 0, gameMode: 'hard', gameState: 'start' };
 export const audio = new SoundEngine();
@@ -44,7 +45,11 @@ export const ATTACK_FRAMES = 18;
 const LOCK = 42;              // 0.7 s: after ANY move you can't start another one (you can still walk)
 const JUMP_OK = 24;           // ...but you may jump once 0.3 s of that lock has passed (42 - 18)
 const STUN = 30;              // 0.5 s stun
-const FREEZE = 18;            // 0.3 s "getting up" after a stomp / headbutt
+const FREEZE = 18;            // 0.3 s "getting up" after a headbutt
+const SUPLEX_DETECT = 0.45;    // suplex homing radius, as a fraction of the stage length
+const SUPLEX_SPEED = 20;
+const SUPLEX_RISE = 20;       // frames spent rising with the opponent before the slam
+const TOP_LIMIT = 80;         // reaching the top of the map cancels a suplex
 export const ROLL_FRAMES = 20;       // 3x faster than the old 60-frame roll (same distance)
 const ROLL_DISTANCE = 368;
 const ROLL_COOLDOWN = 120;    // 2 s
@@ -52,10 +57,11 @@ const HANG_MAX = 180;         // 3 s on a ledge -> kicked off...
 const TIMEOUT_BAN = 240;      // ...and can't re-grab a ledge for 4 s
 const KICK_BAN = 180;         // kicked by someone taking your ledge -> 3 s no ledge
 export const AIR_F_MAX = 2;   // F moves usable in the air before you must touch the ground
-const CD = { CORE: 90, BLINK: 60, SPIRAL: 120, STOMP: 72, HEADBUTT: 90 };
-const F_MOVES = new Set(['BLINK', 'SPIRAL', 'STOMP', 'HEADBUTT']);
+const CD = { CORE: 90, BLINK: 60, SPIRAL: 120, SUPLEX: 0, HEADBUTT: 90 };   // no aftermath cooldown on the suplex
+const F_MOVES = new Set(['BLINK', 'SPIRAL', 'HEADBUTT']);   // (the ground-down Suplex is a grab, so it counts as GRAB)
+const SPIRAL_JUMP_COST = 0;   // Rising Spiral takes no jumps at all
 const HOLD_TO_CORE = 30;      // F held < 0.5 s -> directional variant, >= 0.5 s -> Luminary Core charge
-const CHARGE_MAX = 90;        // 1.5 s to full charge
+const CHARGE_MAX = 63;        // full charge after 63 frames (0.7x the old 1.5 s)
 
 let dramaticZoom = {
     active: false,
@@ -90,7 +96,8 @@ function updateAimMatrix() {
 
     const DEADZONE = 45;
 
-    if (mouse.dist <= DEADZONE) {
+    const forcedNeutral = isDown('neutral');          // hold the neutral key: the matrix reads NEUTRAL
+    if (forcedNeutral || mouse.dist <= DEADZONE) {
         mouse.direction = 'NEUTRAL';
     } else {
         const absDx = Math.abs(mouse.dx);
@@ -116,7 +123,7 @@ function updateAimMatrix() {
             break;
         case 'DOWN':
             arrowElem.textContent = '⬇';
-            labelElem.textContent = 'DOWN  •  J: Down Strike  •  F: Stomp / Headbutt';
+            labelElem.textContent = 'DOWN  •  J: Down Strike  •  F: Suplex / Headbutt';
             break;
         case 'SIDE_LEFT':
             arrowElem.textContent = '⬅';
@@ -128,7 +135,7 @@ function updateAimMatrix() {
             break;
         default:
             arrowElem.textContent = '⏺';
-            labelElem.textContent = 'NEUTRAL  •  J: Jab  •  hold F: Luminary Core';
+            labelElem.textContent = (forcedNeutral ? 'NEUTRAL (held)' : 'NEUTRAL') + '  •  J: Jab  •  hold F: Luminary Core';
             break;
     }
 }
@@ -157,7 +164,7 @@ const SWING = {
 };
 
 // ----------------------------------------------------------------- counter matrix
-//  Move types: J, DASH, GRAB, CORE, BLINK, SPIRAL, STOMP, HEADBUTT  (+ the SHIELD state)
+//  Move types: J, DASH, GRAB (also the Suplex dash), CORE, BLINK, SPIRAL, HEADBUTT  (+ the SHIELD state)
 //   * SHIELD   counters everything except GRAB
 //   * GRAB     is countered by every other active move (except HEADBUTT, which grab beats) - and beats SHIELD
 //   * HEADBUTT counters everything except GRAB and SHIELD
@@ -250,7 +257,7 @@ class Fighter {
     initCombat() {
         this.actionLock = 0;                 // frames until another move may start
         this.airSpecials = 0;                // F moves used since last touching the ground
-        this.cd = { CORE: 0, BLINK: 0, SPIRAL: 0, STOMP: 0, HEADBUTT: 0 };
+        this.cd = { CORE: 0, BLINK: 0, SPIRAL: 0, SUPLEX: 0, HEADBUTT: 0 };
         this.activeMove = null;              // { type, t }: what the fighter is "doing" for counter purposes
         this.fActive = false;                // F is being held
         this.fNeutral = false;               // F was pressed with the aim in the deadzone
@@ -260,16 +267,21 @@ class Fighter {
         this.swing = null;                   // current J / Blink swing profile
         this.swingHit = false;
         this.spiralT = 0;
-        this.stompT = 0;
+        this.suplexT = 0;                    // > 0 while carrying an opponent in a suplex
+        this.suplexN = 0;
+        this.suplexPhase = 'rise';
+        this.suplexPending = false;          // the grab dash in flight is a suplex
+        this.suplexTarget = null;
+        this.grabVictim = null;
         this.diving = false;
         this.diveT = 0;
         this.diveHit = false;
-        this.freezeTimer = 0;                // "getting up" frames after stomp / headbutt
+        this.freezeTimer = 0;                // "getting up" frames after a headbutt
         this.rollCooldown = 0;
         this.rollTotal = ROLL_FRAMES;
         this.hangTimer = 0;
         this.ledgeBan = 0;
-        this.specialKind = null;             // presentation: 'CORE' | 'SPIRAL' | 'STOMP' | 'HEADBUTT'
+        this.specialKind = null;             // presentation: 'CORE' | 'SPIRAL' | 'SUPLEX' | 'HEADBUTT'
         this.specialT = 0;
         this.specialDur = 0;
     }
@@ -317,10 +329,10 @@ class Fighter {
     actionBlocked() {
         return this.actionLock > 0 || this.hitstun > 0 || this.dizzyTimer > 0 || this.clashStunTimer > 0 ||
             this.freezeTimer > 0 || this.isRolling || this.isHanging || !!this.grabbedBy || !!this.grabHolding ||
-            this.isShielding || this.fActive || this.spiralT > 0 || this.stompT > 0 || this.diving;
+            this.isShielding || this.fActive || this.spiralT > 0 || this.suplexT > 0 || this.diving;
     }
     canShield() {
-        return this.actionLock <= 0 && !this.fActive && this.spiralT === 0 && this.stompT === 0 && !this.diving &&
+        return this.actionLock <= 0 && !this.fActive && this.spiralT === 0 && this.suplexT === 0 && !this.diving &&
             !this.isRolling && this.freezeTimer === 0;
     }
     setMove(type, frames) { this.activeMove = { type, t: frames }; }
@@ -329,7 +341,8 @@ class Fighter {
     interrupt() {
         this.fActive = false; this.chargeFrames = 0; this.aiChargeGoal = 0;
         this.swing = null; this.attackTimer = 0; this.activeHitbox = null;
-        this.spiralT = 0; this.stompT = 0; this.diving = false;
+        this.releaseSuplexVictim();
+        this.spiralT = 0; this.suplexT = 0; this.suplexPending = false; this.diving = false;
         this.specialKind = null; this.specialDur = 0; this.specialT = 0;
         this.activeMove = null; this.actionLock = 0; this.freezeTimer = 0;
         this.isDashing = false; this.isGrabDashing = false;
@@ -370,7 +383,7 @@ class Fighter {
             return;
         }
 
-        if (this.freezeTimer > 0) {          // getting up after a stomp / headbutt (not a stun: no grey, no damage)
+        if (this.freezeTimer > 0) {          // getting up after a headbutt (not a stun: no grey, no damage)
             this.freezeTimer--;
             this.vx = 0;
             this.vy = Math.min(this.vy + WORLD.gravity, WORLD.terminalVelocity);
@@ -418,8 +431,19 @@ class Fighter {
         if (this.grabbedBy) {
             this.vx = 0;
             this.vy = 0;
-            this.x = this.grabbedBy.x + (this.grabbedBy.facing * 35);
-            this.y = this.grabbedBy.y;
+            const g = this.grabbedBy;
+            if (g.suplexT > 0) {                  // carried overhead during a suplex
+                this.x = g.x + g.facing * 8;
+                this.y = g.y - 46;
+            } else {
+                this.x = g.x + (g.facing * 35);
+                this.y = g.y;
+            }
+            return;
+        }
+
+        if (this.suplexT > 0) {                   // Suplex: rise with the opponent, then slam them down
+            this.updateSuplex();
             return;
         }
 
@@ -463,8 +487,15 @@ class Fighter {
         if (this.isGrabDashing) {
             this.grabDashTimer--;
             this.ghosts.push({ x: this.x, y: this.y, alpha: 0.6, color: '#ef4444' });
+            if (this.suplexPending && this.suplexTarget) {      // home in on the locked target
+                const t = this.suplexTarget;
+                this.facing = t.x >= this.x ? 1 : -1;
+                this.vx = this.facing * SUPLEX_SPEED;
+            }
             if (this.grabDashTimer <= 0) {
                 this.isGrabDashing = false;
+                this.suplexPending = false;
+                this.suplexTarget = null;
             }
         }
 
@@ -576,33 +607,18 @@ class Fighter {
             if (this.spiralT === 0) this.endSpiral();
         }
 
-        if (this.stompT > 0) {                                // Ground Stomp
-            this.stompT--;
-            this.vx = 0;
-            const n = 24 - this.stompT;
-            if (n === 8) {
-                const reach = STAGE.width / 6;                // 1/6 of the stage in front of you
-                this.activeHitbox = {
-                    x: this.x + this.facing * reach / 2, y: this.y + 14, w: reach, h: 64, type: 'STOMP', ttl: 6,
-                    damage: 8, bkb: 0, kbg: 0, angle: 0, stun: STUN,
-                };
-                fx('stomp', this.x, this.y + this.height / 2, reach, this.facing);
-                S.screenShake = Math.max(S.screenShake, 10);
-                audio.playHit(true);
-            }
-            if (this.stompT === 0) { this.freezeTimer = FREEZE; this.activeMove = null; }
-        }
-
         if (this.diving) {                                    // Air Headbutt dive
             this.diveT++;
             this.vx = 0;
             this.vy = 24;
             this.activeMove = { type: 'HEADBUTT', t: 3 };
-            if (!this.diveHit) {
+            if (this.diveT % 6 === 1) {                       // consecutive hits on the way down (same box as Rising Spiral)
                 this.activeHitbox = {
-                    x: this.x, y: this.y + 40, w: 60, h: 60, type: 'HEADBUTT', ttl: 2, dive: true,
-                    damage: 9, bkb: 12, kbg: 1.1, angle: Math.PI / 2,
+                    x: this.x, y: this.y + 12, w: 132, h: 118, type: 'HEADBUTT', ttl: 5,
+                    damage: 2, bkb: 0, kbg: 0, angle: Math.PI / 2,
+                    fixed: { vx: 0, vy: 18, hitstun: 14 },
                 };
+                fx('spiral', this.x, this.y);
             }
             if (this.diveT > 90 || this.y > STAGE.y + 260) {
                 this.diving = false; this.specialKind = null; this.specialDur = 0; this.activeMove = null; this.activeHitbox = null;
@@ -622,7 +638,7 @@ class Fighter {
         const w = STAGE.width / 8;                            // 1/8 of the stage
         this.activeHitbox = {
             x: this.x, y: this.y + this.height / 2 - 30, w, h: 64, type: 'HEADBUTT', ttl: 8,
-            damage: 10, bkb: 0, kbg: 0, angle: -Math.PI / 2, stun: STUN,
+            damage: 15, bkb: 0, kbg: 0, angle: -Math.PI / 2, stun: STUN,
         };
         this.activeMove = { type: 'HEADBUTT', t: 10 };
         this.specialKind = null; this.specialDur = 0;
@@ -662,7 +678,7 @@ class Fighter {
             case 'SIDE_LEFT': return this.useSpecial('BLINK', this.x - 100, this.y);
             case 'SIDE_RIGHT': return this.useSpecial('BLINK', this.x + 100, this.y);
             case 'UP': return this.useSpecial('SPIRAL', tx, ty);
-            case 'DOWN': return this.useSpecial(this.grounded ? 'STOMP' : 'HEADBUTT', tx, ty);
+            case 'DOWN': return this.useSpecial(this.grounded ? 'SUPLEX' : 'HEADBUTT', tx, ty);
             default: return this.useSpecial('CORE', tx, ty, 0);
         }
     }
@@ -670,9 +686,9 @@ class Fighter {
     useSpecial(kind, tx, ty, charge = 0) {
         if (this.actionBlocked()) return false;
         if (this.cd[kind] > 0) return false;
-        if (kind === 'STOMP' && !this.grounded) return false;
+        if (kind === 'SUPLEX' && !this.grounded) return false;
         if (kind === 'HEADBUTT' && this.grounded) return false;
-        if (!this.grounded && kind !== 'STOMP' && this.airSpecials >= AIR_F_MAX) return false;
+        if (!this.grounded && kind !== 'SUPLEX' && this.airSpecials >= AIR_F_MAX) return false;
 
         if (!this.grounded) this.airSpecials++;
         this.cd[kind] = CD[kind];
@@ -682,7 +698,7 @@ class Fighter {
             case 'CORE': this.startCore(tx, ty, charge); break;
             case 'BLINK': this.startBlink(tx >= this.x ? 1 : -1); break;
             case 'SPIRAL': this.startSpiral(tx); break;
-            case 'STOMP': this.startStomp(tx); break;
+            case 'SUPLEX': this.startSuplex(tx); break;
             case 'HEADBUTT': this.startHeadbutt(); break;
         }
         return true;
@@ -694,11 +710,13 @@ class Fighter {
         if (len < 1) { dx = this.facing; dy = 0; len = 1; }
         dx /= len; dy /= len;
         if (Math.abs(dx) > 0.2) this.facing = dx > 0 ? 1 : -1;
-        const speed = 9 - 2.5 * charge;                       // slow, and bigger = slower
-        const r = 24 + 38 * charge;
+        const speed = (22.5 + (16.25 * 1.3 - 22.5) * charge) * 0.7;   // 0.7x of the previous speed (15.75 uncharged -> 14.8 full)
+        const r = 12 + (62 * 0.8 * 0.8 - 12) * charge;        // min 12 (2x smaller), max 39.7 (0.8x the previous max)
+        const full = charge >= 1;
+        const color = full ? (this === p1 ? '#a855f7' : '#fb923c') : this.color;   // full charge: blue -> purple, red -> orange
         orbs.push({
             x: this.x + dx * (40 + r * 0.4), y: this.y + dy * (40 + r * 0.4),
-            vx: dx * speed, vy: dy * speed, r, charge, owner: this, life: 260, color: this.color,
+            vx: dx * speed, vy: dy * speed, r, charge, owner: this, life: 260, color,
         });                                                   // flies straight along the aim: no homing
         this.setMove('CORE', 24);
         this.specialKind = 'CORE'; this.specialT = 0; this.specialDur = 24;
@@ -727,7 +745,7 @@ class Fighter {
     }
 
     startSpiral(tx) {
-        this.jumpsLeft = 0;                                   // recovery that costs every jump
+        this.jumpsLeft = Math.max(0, this.jumpsLeft - SPIRAL_JUMP_COST);   // recovery that costs a couple of jumps
         this.grounded = false;
         this.y -= 4;
         this.vy = -10.5;
@@ -739,12 +757,90 @@ class Fighter {
         fx('spiral', this.x, this.y);
     }
 
-    startStomp(tx) {
+    /** Ground Down-F: dash forward like a grab; if it connects, carry the opponent up and slam them down. */
+    startSuplex(tx) {
         if (tx !== undefined && Math.abs(tx - this.x) > 20) this.facing = tx > this.x ? 1 : -1;
-        this.stompT = 24;
-        this.vx = 0;
-        this.specialKind = 'STOMP'; this.specialT = 0; this.specialDur = 24;
-        this.setMove('STOMP', 24);
+        this.suplexPending = true;
+        this.isGrabDashing = true;
+        // homing: lock onto an opponent inside 0.45 of the stage length, otherwise it is a blank dash forward
+        const foe = this === p1 ? p2 : p1;
+        const inRange = foe && Math.hypot(foe.x - this.x, foe.y - this.y) <= STAGE.width * SUPLEX_DETECT;
+        this.suplexTarget = inRange ? foe : null;
+        if (inRange) {
+            this.facing = foe.x >= this.x ? 1 : -1;
+            this.grabDashTimer = Math.min(50, Math.ceil(Math.abs(foe.x - this.x) / SUPLEX_SPEED) + 8);
+        } else {
+            this.grabDashTimer = 14;
+        }
+        this.vx = this.facing * SUPLEX_SPEED;
+        this.vy = 0;
+        this.setMove('GRAB', 14);                              // counters / is countered exactly like a grab
+        audio.playDash();
+    }
+    beginSuplex(d) {
+        this.suplexPending = false;
+        this.isGrabDashing = false;
+        this.grabDashTimer = 0;
+        this.grabHolding = null;
+        this.vx = 0; this.vy = 0;
+        d.interrupt();
+        d.isShielding = false;
+        d.grabbedBy = this;
+        d.hitstun = 90;
+        this.suplexT = 1; this.suplexN = 0; this.suplexPhase = 'rise';
+        this.grabVictim = d;
+        this.specialKind = 'SUPLEX'; this.specialT = 0; this.specialDur = 999;
+        this.activeMove = null;
+        audio.playGrab();
+        fx('grab', d.x, d.y);
+    }
+    releaseSuplexVictim() {
+        const d = this.grabVictim;
+        if (d && d.grabbedBy === this) { d.grabbedBy = null; d.hitstun = 10; }
+        this.grabVictim = null;
+        if (this.suplexT > 0) { this.specialKind = null; this.specialDur = 0; }
+    }
+    updateSuplex() {
+        const d = this.grabVictim;
+        if (!d || d.grabbedBy !== this) { this.endSuplex(); return; }
+        this.suplexN++;
+        if (this.suplexPhase === 'rise') {
+            this.vy = -15; this.vx = this.facing * 2.5;
+            this.x += this.vx; this.y += this.vy;
+            if (this.y < TOP_LIMIT) {                          // reached the top of the map: cancel
+                this.endSuplex();
+                this.actionLock = Math.max(this.actionLock, 60);
+                return;
+            }
+            if (this.suplexN >= SUPLEX_RISE) { this.suplexPhase = 'slam'; this.suplexN = 0; }
+        } else {
+            this.vy = 26; this.vx = -this.facing * 2;
+            this.x += this.vx; this.y += this.vy;
+            this.checkStageCollision();
+            if (this.grounded) { this.suplexImpact(d); return; }
+            if (this.suplexN > 45 || this.y > STAGE.y + 300) { this.endSuplex(); return; }   // never found the floor
+        }
+    }
+    suplexImpact(d) {
+        d.grabbedBy = null;
+        this.grabVictim = null;
+        this.suplexT = 0;
+        this.specialKind = null; this.specialDur = 0;
+        d.x = this.x - this.facing * 34;
+        d.y = this.y;
+        this.vx = 0; this.vy = 0;
+        fx('stomp', this.x, this.y + this.height / 2, STAGE.width / 8, 0);
+        S.screenShake = Math.max(S.screenShake, 16);
+        launch(this, d, {
+            damage: 14, bkb: 7, kbg: 0.7,
+            angle: this.facing === 1 ? Math.PI + Math.PI / 3 : -Math.PI / 3,   // thrown up and behind
+        });
+    }
+    endSuplex() {
+        this.releaseSuplexVictim();
+        this.suplexT = 0;
+        this.specialKind = null; this.specialDur = 0;
+        this.vx = 0; this.vy = 0;
     }
 
     startHeadbutt() {
@@ -871,7 +967,7 @@ class Fighter {
     /** Roll: ONLY while shielding (hold E + scroll wheel), 2 s cooldown, never over the void. */
     executeRoll(force = false, dirOverride = 0) {
         if (!this.grounded || this.hitstun > 0 || this.dizzyTimer > 0 || this.clashStunTimer > 0 || this.isRolling ||
-            this.freezeTimer > 0 || this.stompT > 0 || this.diving || this.spiralT > 0 || this.grabbedBy || this.grabHolding) return false;
+            this.freezeTimer > 0 || this.suplexT > 0 || this.diving || this.spiralT > 0 || this.grabbedBy || this.grabHolding) return false;
         if (this.rollCooldown > 0) return false;
         if (!force && !this.isShielding) return false;
 
@@ -897,7 +993,7 @@ class Fighter {
 
     jump() {
         if (this.hitstun > 0 || this.isShielding || this.dizzyTimer > 0 || this.clashStunTimer > 0 || this.grabbedBy || this.grabHolding || this.isRolling) return;
-        if (this.freezeTimer > 0 || this.stompT > 0 || this.diving || this.spiralT > 0) return;
+        if (this.freezeTimer > 0 || this.suplexT > 0 || this.diving || this.spiralT > 0) return;
         if (this.actionLock > JUMP_OK) return;                // 0.3 s after a move you may jump again
 
         if (this.isHanging) {
@@ -1035,7 +1131,7 @@ const botMem = (() => {
     try { return JSON.parse(localStorage.getItem(BOT_MEM_KEY)) || {}; } catch (e) { return {}; }
 })();
 function saveBotMemory() { try { localStorage.setItem(BOT_MEM_KEY, JSON.stringify(botMem)); } catch (e) { /* storage unavailable */ } }
-const MEM_KEYS = ['SHIELD', 'J', 'DASH', 'GRAB', 'CORE', 'BLINK', 'SPIRAL', 'STOMP', 'HEADBUTT'];
+const MEM_KEYS = ['SHIELD', 'J', 'DASH', 'GRAB', 'CORE', 'BLINK', 'SPIRAL', 'SUPLEX', 'HEADBUTT'];
 /** how often the player uses `k` (0..1, smoothed so a short history can't be extreme) */
 function habit(k) {
     let total = 0;
@@ -1098,10 +1194,9 @@ class AIBot extends Fighter {
 
     updateAI(target) {
         if (S.gameMode === 'training') {
-            this.vx = 0;
-            this.vy = Math.min(this.vy + WORLD.gravity, WORLD.terminalVelocity);
-            this.y += this.vy;
-            this.checkStageCollision();
+            // the dummy never acts, but it moves with the same physics as everyone else
+            // (update() applies gravity / friction / knockback once), so launches go sideways too
+            this.isShielding = false;
             return;
         }
 
@@ -1134,7 +1229,7 @@ class AIBot extends Fighter {
             this.vx = Math.max(-6, Math.min(6, this.vx + (this.x < stageCenterX ? 0.9 : -0.9)));
             return;
         }
-        if (this.stompT > 0 || this.diving || this.isRolling) return;
+        if (this.suplexT > 0 || this.diving || this.isRolling) return;
 
         const isOverVoid = this.x < STAGE.x || this.x > STAGE.x + STAGE.width;
         if (isOverVoid) {
@@ -1151,7 +1246,7 @@ class AIBot extends Fighter {
             this.vx *= 0.8;
             this.facing = distToTargetX > 0 ? 1 : -1;
             if (this.chargeFrames >= this.aiChargeGoal) {
-                const flight = Math.min(30, dist / 8);
+                const flight = Math.min(30, dist / 20);
                 const lead = S.gameMode === 'hard' ? flight * 0.6 : 0;
                 this.fRelease('NEUTRAL', target.x + target.vx * lead, target.y + target.vy * lead * 0.5);
             }
@@ -1174,7 +1269,7 @@ class AIBot extends Fighter {
                 } else if (dist < 90 && Math.random() < 0.3) {
                     this.attack(distToTargetY < -30 ? 'UP' : 'NEUTRAL');
                 } else if (dist > 380 && dist < 900 && Math.random() < 0.18 && this.grounded) {
-                    this.beginCore(target, 22 + Math.random() * 24);     // the odd slow, small core
+                    this.beginCore(target, 15 + Math.random() * 17);     // the odd slow, small core
                 }
             }
 
@@ -1209,7 +1304,7 @@ class AIBot extends Fighter {
         // the player is on / over the edge: shoot a Luminary Core at them from range
         if ((targetIsOffStage || targetOnEdge) && this.grounded && dist > 280 && this.cd.CORE <= 0 &&
             this.actionTimer % 10 === 0 && Math.random() < 0.55) {
-            if (this.beginCore(target, 50 + Math.random() * 40)) return;
+            if (this.beginCore(target, 35 + Math.random() * 28)) return;
         }
 
         if (targetIsOffStage && this.grounded && !isOffStage) {
@@ -1276,13 +1371,13 @@ class AIBot extends Fighter {
                 const opts = [];
                 opts.push([3, () => this.attack(aim)]);
                 if (this.canGrab) opts.push([1 + 3 * habit('SHIELD'), () => this.executeGrabDash(target.x, target.y)]);
-                if (this.grounded && target.grounded && dist < 230 && this.cd.STOMP <= 0) opts.push([2, () => this.useSpecial('STOMP', target.x, target.y)]);
+                if (this.grounded && target.grounded && dist < 260) opts.push([2, () => this.useSpecial('SUPLEX', target.x, target.y)]);
                 if (this.cd.BLINK <= 0 && Math.abs(distToTargetY) < 60 && dist > 80) opts.push([1, () => this.useSpecial('BLINK', target.x, target.y)]);
                 this.pickWeighted(opts);
             } else if (dist < 330 && Math.abs(distToTargetY) < 70 && this.cd.BLINK <= 0 && Math.random() < 0.3) {
                 this.useSpecial('BLINK', target.x, target.y);        // blink slash to close the gap
             } else if (dist > 330 && this.grounded && this.cd.CORE <= 0 && Math.random() < 0.25) {
-                this.beginCore(target, 20 + Math.random() * 40);     // zoning with cores
+                this.beginCore(target, 14 + Math.random() * 28);     // zoning with cores
             } else if (dist < 120) {
                 this.attack(aim);
             }
@@ -1390,7 +1485,7 @@ function launch(attacker, defender, hb) {
         attacker.incomingHitCount = 0;
     }
 
-    if (hb.stun) {                                          // stomp / headbutt: freeze them for 0.5 s, no launch
+    if (hb.stun) {                                          // headbutt: freeze them for 0.5 s, no launch
         defender.clashStunTimer = hb.stun;
         defender.vx = 0;
         defender.vy = 0;
@@ -1430,7 +1525,7 @@ function launch(attacker, defender, hb) {
 
 function explodeOrb(o) {
     const R = 80 + 90 * o.charge;
-    const dmg = 8 + 12 * o.charge;
+    const dmg = 4 + 16 * o.charge;                // min 4 (2x less damage), max 20
     fx('explosion', o.x, o.y, R, o.charge);
     S.screenShake = Math.max(S.screenShake, 8 + 10 * o.charge);
     audio.playHit(o.charge > 0.5);
@@ -1446,7 +1541,7 @@ function explodeOrb(o) {
     const res = interaction('CORE', t);
     if (res === 'hit') {
         launch(o.owner, t, {
-            damage: dmg, bkb: 10 + 8 * o.charge, kbg: 1.1,
+            damage: dmg, bkb: (10 + 8 * o.charge) / 2, kbg: 1.1 / 2,      // half the knockback
             angle: Math.atan2(t.y - o.y - 25, (t.x - o.x) || o.vx),
         });
     } else if (res === 'shield') {
@@ -1570,6 +1665,12 @@ function checkCombatCollisions(attacker, defender) {
                 return;
             }
 
+            if (attacker.suplexPending) {                     // Down-F on the ground: carry them up and suplex
+                attacker.beginSuplex(defender);
+                createParticles(defender.x, defender.y, '#ef4444', 20);
+                return;
+            }
+
             defender.interrupt();
             defender.isShielding = false;
             attacker.isGrabDashing = false;
@@ -1622,7 +1723,7 @@ function checkCombatCollisions(attacker, defender) {
         }
     }
 
-    // ---- swings, stomp, headbutt, spiral
+    // ---- swings, headbutt, spiral
     if (!attacker.activeHitbox || defender.invincibleTimer > 0) return;
 
     const hb = attacker.activeHitbox;
@@ -1644,7 +1745,6 @@ function checkCombatCollisions(attacker, defender) {
             handleBlocked(res, attacker, defender);
             return;
         }
-        if (hb.dive) attacker.diveHit = true;
         launch(attacker, defender, hb);
     }
 }
@@ -1812,22 +1912,22 @@ export function step() {
         const free = p1.hitstun === 0 && p1.dizzyTimer === 0 && p1.clashStunTimer === 0 && !p1.grabHolding &&
             !p1.isRolling && p1.freezeTimer === 0;
         if (free) {
-            // you can always walk (even during the 0.7 s move lock) - except while planted in a stomp / dive
-            if (!(p1.stompT > 0 || p1.diving)) {
-                const spd = (p1.fActive || p1.spiralT > 0) ? 4.5 : 8.5;
-                if (keys['a'] || keys['A']) {
+            // you can always walk (even during the 0.7 s move lock) - except while diving
+            if (!p1.diving) {
+                const spd = p1.fActive ? 6.75 : (p1.spiralT > 0 ? 4.5 : 8.5);   // charging a core: 1.5x the old 4.5
+                if (isDown('left')) {
                     if (p1.isHanging) p1.isHanging = false;
                     p1.vx = -spd;
                     p1.facing = -1;
                 }
-                if (keys['d'] || keys['D']) {
+                if (isDown('right')) {
                     if (p1.isHanging) p1.isHanging = false;
                     p1.vx = spd;
                     p1.facing = 1;
                 }
             }
 
-            p1.isShielding = !!(keys['e'] || keys['E']) && p1.canShield();
+            p1.isShielding = isDown('shield') && p1.canShield();
         } else {
             p1.isShielding = false;
         }

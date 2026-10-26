@@ -506,14 +506,15 @@ export class Effects {
             const g = this.chargePool[i];
             if (!f.charging || S.gameState !== 'playing') { g.visible = false; return; }
             const c = Math.min(1, f.chargeFrames / CHARGE_MAX);
-            const r = (6 + 30 * c) * (1 + Math.sin(this.chargeT * 30) * 0.08);
+            const r = (5 + 15 * c) * (1 + Math.sin(this.chargeT * 30) * 0.08);
             g.visible = true;
             g.position.set(wx(f.x + f.facing * (30 + 8 * c)), wy(f.y - 2), 8);
-            this.#paintOrb(g, r, f.color, 0.8 + 0.2 * c);
+            const col = c >= 1 ? (f === p1 ? '#a855f7' : '#fb923c') : f.color;
+            this.#paintOrb(g, r, col, 0.8 + 0.2 * c);
             if (Math.random() < 0.5 + c * 0.5) {          // energy streaming in
                 const a = Math.random() * Math.PI * 2, d = 50 + 60 * c;
                 const from = g.position.clone().add(new THREE.Vector3(Math.cos(a) * d, Math.sin(a) * d, 0));
-                this.spray(from, a + Math.PI, f.color, 1, d * 5, 0.1, 0.18);
+                this.spray(from, a + Math.PI, c >= 1 ? (f === p1 ? '#a855f7' : '#fb923c') : f.color, 1, d * 5, 0.1, 0.18);
             }
             if (c >= 1 && Math.floor(this.chargeT * 12) % 6 === 0) this.ring(g.position.clone(), r, r + 40, 0.2, '#ffffff', 'screen');
         });

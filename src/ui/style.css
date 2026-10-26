@@ -35,3 +35,73 @@ body, html {
 .text-rose-500{--tw-text-opacity:1;color:rgb(244 63 94 / var(--tw-text-opacity, 1))}
         .text-amber-400{--tw-text-opacity:1;color:rgb(251 191 36 / var(--tw-text-opacity, 1))}
         #gameCanvas{cursor:crosshair}
+
+/* ---- tutorial + controls modals ---- */
+.lm-modal{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(2,6,16,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.lm-hidden{display:none}
+.lm-panel{width:min(920px,100%);max-height:calc(100% - 8px);display:flex;flex-direction:column;background:#0b1220;border:1px solid #1e3a4f;border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.6);color:#cbd5e1;overflow:hidden}
+.lm-panel-sm{width:min(560px,100%)}
+.lm-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #16263a}
+.lm-head h2{font-family:Teko,Inter,sans-serif;font-size:30px;letter-spacing:.06em;text-transform:uppercase;color:#22d3ee;line-height:1}
+.lm-x{width:32px;height:32px;border-radius:8px;color:#94a3b8;font-size:16px}
+.lm-x:hover{background:#16263a;color:#fff}
+.lm-tabs{display:flex;gap:6px;padding:10px 16px;overflow-x:auto;border-bottom:1px solid #16263a;scrollbar-width:thin}
+.lm-tab{flex:none;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;color:#94a3b8;border:1px solid #1e293b;white-space:nowrap}
+.lm-tab:hover{color:#fff;border-color:#334155}
+.lm-tab.on{background:#0e7490;border-color:#22d3ee;color:#fff}
+.lm-body{padding:18px 22px;overflow-y:auto;min-height:0;flex:1;font-size:13px;line-height:1.55}
+.lm-title{font-family:Teko,Inter,sans-serif;font-size:26px;letter-spacing:.05em;text-transform:uppercase;color:#e2e8f0;margin-bottom:8px}
+.lm-lead{font-size:14px;color:#e2e8f0;margin-bottom:14px}
+.lm-lead b,.lm-card b,.lm-note b{color:#fff}
+.lm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:12px}
+.lm-card{background:#0f1a2c;border:1px solid #1b2c44;border-radius:14px;padding:12px 14px;min-width:0}
+.lm-card h4{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#67e8f9;margin-bottom:6px}
+.lm-card p+p,.lm-card h4+table,.lm-card p+h4,.lm-card table+h4{margin-top:8px}
+.lm-card ul{list-style:disc;padding-left:18px}
+.lm-card li{margin-bottom:4px}
+.lm-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.lm-table th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#64748b;padding:4px 8px;border-bottom:1px solid #1b2c44}
+.lm-table td{padding:6px 8px;border-bottom:1px solid #131f33;vertical-align:top}
+.lm-table td:first-child{white-space:nowrap;color:#e2e8f0}
+.lm-wide{margin-bottom:12px}
+.lm-keys td:first-child{white-space:normal}
+.lm-note{font-size:12px;color:#94a3b8;margin-top:8px}
+kbd{display:inline-block;min-width:22px;text-align:center;padding:1px 7px;border-radius:6px;background:#1e293b;border:1px solid #334155;border-bottom-width:2px;color:#fff;font:700 11px/1.5 Inter,sans-serif}
+.lm-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 20px;border-top:1px solid #16263a}
+.lm-count{font-size:12px;color:#64748b}
+.lm-btn{padding:9px 18px;border-radius:12px;background:#06b6d4;color:#02131a;font-weight:800;font-size:12px;letter-spacing:.06em;text-transform:uppercase;transition:background .15s}
+.lm-btn:hover{background:#22d3ee}
+.lm-btn:disabled{opacity:.35;cursor:default}
+.lm-btn-ghost{background:#111c2e;color:#67e8f9;border:1px solid #1e4f63}
+.lm-btn-ghost:hover{background:#16263a}
+.lm-start-row{display:flex;gap:10px;margin-top:4px}
+.lm-start-row .lm-btn{flex:1;padding:11px 12px}
+.lm-hint{padding:10px 20px 0;margin:0}
+.lm-rows{display:flex;flex-direction:column;gap:2px}
+.lm-group{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#64748b;margin:12px 0 4px}
+.lm-group:first-child{margin-top:0}
+.lm-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #111c2e}
+.lm-key{min-width:150px;padding:6px 12px;border-radius:9px;background:#111c2e;border:1px solid #243a52;color:#e2e8f0;font-size:12px;font-weight:700}
+.lm-key:hover{border-color:#22d3ee}
+.lm-key.listening{border-color:#f59e0b;color:#fbbf24;background:#2a2008}
+.lm-fixed{font-size:12px;color:#64748b;min-width:150px;text-align:center}
+.lm-modal button:focus-visible{outline:2px solid #22d3ee;outline-offset:2px}
+
+/* guided tutorial overlay */
+.lm-guide{position:absolute;left:50%;top:84px;transform:translateX(-50%);z-index:55;width:min(520px,calc(100% - 24px));padding:12px 16px 10px;border-radius:16px;background:rgba(6,14,28,.9);border:1px solid #1e4f63;box-shadow:0 10px 40px rgba(0,0,0,.5);backdrop-filter:blur(6px);color:#cbd5e1;font-size:13px;line-height:1.45;transition:border-color .2s,box-shadow .2s}
+.lm-guide.ok{border-color:#34d399;box-shadow:0 0 28px rgba(52,211,153,.35)}
+.lm-g-top{display:flex;align-items:center;gap:10px}
+.lm-g-step{font-weight:800;font-size:10px;letter-spacing:.14em;color:#67e8f9;white-space:nowrap}
+.lm-g-bar{flex:1;height:4px;border-radius:4px;background:#13233a;overflow:hidden}
+.lm-g-bar i{display:block;height:100%;width:0;background:#22d3ee;transition:width .3s}
+.lm-g-x{width:22px;height:22px;border-radius:6px;color:#94a3b8;font-size:12px;line-height:1}
+.lm-g-x:hover{background:#16263a;color:#fff}
+.lm-g-title{font-weight:800;font-size:16px;color:#fff;margin:6px 0 2px}
+.lm-g-prog{min-height:16px;font-size:12px;font-weight:700;color:#34d399;margin-top:4px}
+.lm-g-keys{margin-top:6px;font-size:11px;color:#64748b}
+.lm-g-keys span{margin:0 2px}
+.lm-guide kbd{display:inline-block;padding:0 6px;border-radius:5px;background:#13233a;border:1px solid #27465c;color:#67e8f9;font-family:inherit;font-weight:700;font-size:11px}
+.lm-guidecta{display:flex;gap:14px;align-items:center;justify-content:space-between;padding:12px 14px;margin-bottom:12px;border-radius:14px;background:#0b2230;border:1px solid #1e6a80}
+.lm-guidecta span{color:#94a3b8;font-size:12px}
+.lm-guidecta .lm-btn{white-space:nowrap}
+@media (max-width:560px){.lm-guidecta{flex-direction:column;align-items:stretch}}

@@ -357,7 +357,7 @@ export class FighterModel {
             return p;
         }
         // ---- F specials
-        if (f.freezeTimer > 0) {                       // getting up after a stomp / headbutt
+        if (f.freezeTimer > 0) {                       // getting up after a headbutt
             const u = 1 - f.freezeTimer / 18;
             const c = 1 - smooth(u);
             p.dy = -6 * c; p.rK = 100 * c; p.lK = 100 * c; p.rHx = 74 * c; p.lHx = 74 * c;
@@ -370,13 +370,16 @@ export class FighterModel {
             p.rHx = 8; p.lHx = -6; p.rK = 22; p.lK = 30; p.headX = -10; p.aura = 1; p.blade = 1;
             return p;
         }
-        if (f.specialKind === 'STOMP') {
-            const u = f.specialT / 24;
-            const lift = smooth(seg(u, 0, 0.28)) * (1 - smooth(seg(u, 0.3, 0.36)));   // raise the leg, then slam it
-            const slam = smooth(seg(u, 0.3, 0.4)) * (1 - smooth(seg(u, 0.55, 1)));
-            p.rHx = 100 * lift + 6 * slam; p.rK = 105 * lift + 4 * slam; p.lK = 24 * lift + 10 * slam;
-            p.rSx = 60 * lift + 30 * slam; p.lSx = 60 * lift + 30 * slam; p.rSz = 62 * lift + 20 * slam; p.lSz = 62 * lift + 20 * slam;
-            p.rE = 30; p.lE = 30; p.lean = -8 * lift + 18 * slam; p.dy = 3 * lift - 5 * slam; p.headX = 6 * slam;
+        if (f.specialKind === 'SUPLEX') {                // carrying the opponent up, then slamming them down
+            if (f.suplexPhase === 'rise') {
+                const u = clamp01(f.suplexN / 20);
+                p.dy = -3; p.rSx = 172; p.lSx = 172; p.rSz = 10; p.lSz = 10; p.rE = 6; p.lE = 6;
+                p.lean = -10 - 22 * smooth(u); p.headX = -14; p.rHx = 20; p.lHx = 6; p.rK = 60; p.lK = 50; p.fwd = -3; p.aura = 0.8;
+            } else {
+                const u = clamp01(f.suplexN / 12);
+                p.rSx = lerp(172, 70, smooth(u)); p.lSx = p.rSx; p.rE = 20; p.lE = 20; p.rSz = 10; p.lSz = 10;
+                p.lean = lerp(-30, 38, smooth(u)); p.headX = 14 * smooth(u); p.rHx = 30; p.lHx = 10; p.rK = 30; p.lK = 24; p.aura = 1; p.pitch = 0;
+            }
             return p;
         }
         if (f.diving || f.specialKind === 'HEADBUTT') {
@@ -393,7 +396,7 @@ export class FighterModel {
             return p;
         }
         if (f.charging) {                              // cupping a growing orb
-            const c = clamp01(f.chargeFrames / 90);
+            const c = clamp01(f.chargeFrames / 63);
             const sh = Math.sin(t * 40) * 2 * c;
             p.dy = -3 - 2 * c; p.rSx = 84; p.lSx = 84; p.rE = 70; p.lE = 70; p.rSz = 14 - 8 * c; p.lSz = 14 - 8 * c;
             p.lean = -5; p.rK = 34; p.lK = 34; p.rHx = 20; p.lHx = -14; p.headX = 6; p.twist = sh; p.aura = 0.35 + 0.65 * c;

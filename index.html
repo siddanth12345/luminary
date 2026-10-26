@@ -24,6 +24,10 @@
                 <button id="trainingModeBtn" class="bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/40 font-extrabold px-8 py-3.5 rounded-2xl transition shadow-xl text-lg uppercase tracking-wider">
                     Training Mode (Dummy)
                 </button>
+                <div class="lm-start-row">
+                    <button id="tutorialBtnStart" class="lm-btn lm-btn-ghost">How to Play</button>
+                    <button id="settingsBtnStart" class="lm-btn lm-btn-ghost">Controls</button>
+                </div>
             </div>
         </div>
     </div>
@@ -104,6 +108,12 @@
             <button id="menuResumeBtn" class="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition text-left uppercase tracking-wide text-xs">
                 ▶ Resume Match
             </button>
+            <button id="menuTutorialBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-xl transition text-left uppercase tracking-wide text-xs">
+                📖 How to Play
+            </button>
+            <button id="menuControlsBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-xl transition text-left uppercase tracking-wide text-xs">
+                ⌨ Controls
+            </button>
             <button id="menuRestartBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-xl transition text-left uppercase tracking-wide text-xs">
                 🔄 Restart Match
             </button>
@@ -147,75 +157,6 @@
                 <span class="text-[10px] font-black tracking-widest text-slate-400 uppercase">AIM MATRIX STATUS</span>
                 <span id="aimMatrixLabel" class="text-sm font-bold text-slate-200">DOWN ATTACK / SPIKE</span>
                 <span id="aimVectorText" class="text-[10px] font-mono text-slate-400">dx: 4 | dy: 244</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- CONTROLS CHEAT SHEET MODAL OVERLAY -->
-    <div id="controlsModal" class="hidden absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-        <div class="glass-panel max-w-2xl w-full rounded-2xl p-6 border border-slate-700 text-slate-200 relative">
-            <button id="closeControlsBtn" class="absolute top-4 right-4 text-slate-400 hover:text-white text-xl font-bold">✕</button>
-            
-            <h2 class="smash-font text-3xl font-bold text-cyan-400 tracking-wide mb-4">THE LUMINARY - CONTROLS &amp; MECHANICS</h2>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs max-h-[70vh] overflow-y-auto pr-1">
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">MOVEMENT &amp; LEDGES</h3>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">A / D</span> Move (always allowed)</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Spacebar</span> Jump / leave ledge (0.3s after a move)</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Ledges</span> One fighter per ledge: the newcomer kicks you off (3s no ledge). Hang 3s and you're kicked off for 4s.</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Move lag</span> After ANY move you wait 0.7s before the next one.</p>
-                </div>
-
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">GRAB, SHIELD &amp; ROLL</h3>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Q</span> Dash &amp; Grab (1 per airtime)</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">E</span> Shield (counters everything except grab)</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">E + Scroll</span> Roll (only while shielding, 2s cooldown, stops at the ledge)</p>
-                </div>
-
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">ATTACKS</h3>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Right Click</span> J attack: aim-matrix slash (hitbox follows the swing)</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Left Click</span> Mouse Dash attack</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">J key</span> no longer does anything</p>
-                </div>
-
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <h3 class="font-bold text-violet-300 text-sm mb-2 border-b border-slate-700 pb-1">F SPECIALS (only 2 in the air)</h3>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Hold F</span> Luminary Core: charge up to 1.5s, release fires a slow straight orb at your cursor</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Tap F + Side</span> Blink Slash: 220-unit teleport + slash</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Tap F + Up</span> Rising Spiral: multi-hit recovery, uses all jumps</p>
-                    <p class="mb-1"><span class="font-bold text-white bg-slate-700 px-1.5 py-0.5 rounded">Tap F + Down</span> Ground: Stomp (stuns in front) / Air: Headbutt dive</p>
-                    <p class="text-slate-400">Touch the ground to refill air F moves.</p>
-                </div>
-
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">COUNTERS</h3>
-                    <p class="text-slate-300 leading-relaxed">
-                        • <b>Shield</b> counters all but Grab<br>
-                        • <b>Grab</b> loses to every active move (not Headbutt) but beats Shield<br>
-                        • <b>Headbutt</b> counters all but Grab &amp; Shield<br>
-                        • <b>J attack</b> counters all but Shield<br>
-                        • <b>Core</b> counters F moves &amp; Grab (not Dash / J)
-                    </p>
-                </div>
-
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <h3 class="font-bold text-cyan-300 text-sm mb-2 border-b border-slate-700 pb-1">DIFFICULTY SYSTEM</h3>
-                    <p class="text-slate-300 leading-relaxed">
-                        • <b>Easy:</b> Bot moves slower, attacks less, uses shield often.
-                        <br>• <b>Hard:</b> Uses every move, zones with Cores, learns your habits between matches.
-                        <br>• <b>Training:</b> Dummy practice mode.
-                        <br>• <b>Rule:</b> Reaching 250% damage instantly causes a K.O.
-                    </p>
-                </div>
-            </div>
-
-            <div class="mt-6 text-center">
-                <button id="startPlayBtn" class="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold px-8 py-2.5 rounded-xl transition shadow-lg shadow-cyan-500/30 uppercase tracking-wider text-sm">
-                    Resume Match
-                </button>
             </div>
         </div>
     </div>
