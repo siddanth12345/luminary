@@ -1,8 +1,8 @@
 // A transport moves small JSON messages between the two players of a room.
 //   const t = await openTransport(code); t.onmessage = (msg) => ...; t.send(msg); t.close();
-import { SUPABASE_URL, SUPABASE_KEY, SUPABASE_JS } from './config.js';
+import { getClient, supabaseConfigured } from './supa.js';
 
-export const hasRealtime = () => !!(SUPABASE_URL && SUPABASE_KEY);
+export const hasRealtime = () => supabaseConfigured();
 
 class LocalTransport {
     constructor(code) { this.ch = new BroadcastChannel('luminary-room-' + code); this.onmessage = null; this.local = true; }
@@ -11,20 +11,10 @@ class LocalTransport {
     close() { try { this.ch.close(); } catch (e) { /* already closed */ } }
 }
 
-function loadScript(src) {
-    return new Promise((resolve, reject) => {
-        if (window.supabase) return resolve();
-        const s = document.createElement('script');
-        s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('could not load the Supabase library'));
-        document.head.appendChild(s);
-    });
-}
-
 class SupabaseTransport {
     constructor(code) { this.code = code; this.onmessage = null; this.local = false; this.client = null; this.ch = null; }
     async open() {
-        await loadScript(SUPABASE_JS);
-        this.client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { realtime: { params: { eventsPerSecond: 60 } } });
+        this.client = await getClient();
         this.ch = this.client.channel('luminary:' + this.code, { config: { broadcast: { self: false, ack: false } } });
         this.ch.on('broadcast', { event: 'm' }, ({ payload }) => this.onmessage && this.onmessage(payload));
         await new Promise((resolve, reject) => {

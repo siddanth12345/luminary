@@ -5,6 +5,8 @@
 import { S, p1, p2, startMatchSequence, applyRemote, applySnapshot, NETHOOK, resetSnapshotState } from '../core.js';
 import { openTransport, hasRealtime } from './transport.js';
 import { isDown } from '../controls.js';
+import { displayName } from '../account.js';
+import { bindChat, onRemoteChat, clearChat } from './chat.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const newCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
@@ -16,6 +18,8 @@ export const Online = {
     status: 'idle',       // idle | waiting | joining | connected | closed
     note: '',
     name: 'Player',
+    mode: 'pvp',          // 'pvp' (1v1) | 'lobby' (up to 8)
+    viaQueue: false,
     peerName: 'Opponent',
     t: null,
     lastRecv: 0,
@@ -38,7 +42,7 @@ export function leaveRoom(notify = true) {
         if (notify) Online.t.send({ t: 'leave' });
         Online.t.close();
     }
-    Online.t = null; Online.role = null; Online.code = ''; stopTimers();
+    Online.t = null; Online.role = null; Online.code = ''; stopTimers(); bindChat(null);
     NETHOOK.send = null; S.online = null; S.opponentName = null; lastHeld = '';
     set('idle');
 }
@@ -52,9 +56,10 @@ function watch() {
 }
 
 /** ---- host ---- */
-export async function hostRoom() {
+export async function hostRoom(code, mode = 'pvp') {
     leaveRoom(false);
-    Online.role = 'host'; Online.code = newCode();
+    Online.name = displayName(); Online.mode = mode; Online.viaQueue = false;
+    Online.role = 'host'; Online.code = code || newCode();
     set('waiting', 'Opening room…');
     try { Online.t = await openTransport(Online.code); } catch (e) { Online.role = null; set('closed', e.message); return false; }
     const t = Online.t;
@@ -71,9 +76,11 @@ export async function hostRoom() {
             case 'held': case 'act': applyRemote(m); break;
             case 'rematch': if (Online.status === 'connected') beginMatch(); break;
             case 'leave': { const cb = Online.onLeft; leaveRoom(false); set('closed', 'Opponent left'); cb('Opponent left'); break; }
+            case 'chat': onRemoteChat(m); break;
             case 'ping': break;
         }
     };
+    bindChat((msg) => t.send(msg)); clearChat();
     watch();
     set('waiting', 'Waiting for a friend. Share the code ' + Online.code);
     return true;
@@ -90,6 +97,7 @@ export function beginMatch() {
 /** ---- guest ---- */
 export async function joinRoom(code) {
     leaveRoom(false);
+    Online.name = displayName(); Online.viaQueue = false;
     code = (code || '').trim().toUpperCase();
     if (!/^[A-Z]{4}$/.test(code)) { set('closed', 'Codes are 4 letters'); return false; }
     Online.role = 'guest'; Online.code = code;
@@ -106,8 +114,10 @@ export async function joinRoom(code) {
             case 'start': Online.peerName = (m.name || Online.peerName).slice(0, 20); S.online = 'guest'; S.opponentName = Online.peerName; resetSnapshotState(); startMatchSequence('online'); break;
             case 'snap': if (S.online === 'guest') applySnapshot(m.s); break;
             case 'leave': { const cb = Online.onLeft; leaveRoom(false); set('closed', 'The host left'); cb('The host left'); break; }
+            case 'chat': onRemoteChat(m); break;
         }
     };
+    bindChat((msg) => t.send(msg)); clearChat();
     watch();
     const hello = () => t.send({ t: 'hello', id: myId, name: Online.name });
     hello();

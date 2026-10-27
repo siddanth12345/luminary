@@ -15,6 +15,8 @@ export const ACTIONS = [
     { id: 'roll',     label: 'Roll (while shielding)',    def: 'KeyR',      group: 'Defense' },
     { id: 'tutorial', label: 'Open the tutorial',         def: 'KeyH',      group: 'Menus' },
     { id: 'fullscreen', label: 'Toggle fullscreen',       def: 'Semicolon', group: 'Menus' },
+    { id: 'chat',       label: 'Open chat (online)',       def: 'Slash',     group: 'Menus' },
+    { id: 'drop',       label: 'Drop through platforms',   def: 'KeyS',      group: 'Movement' },
 ];
 
 const STORE_KEY = 'luminary.controls.v1';
@@ -26,7 +28,17 @@ try {
     if (saved) for (const a of ACTIONS) if (typeof saved[a.id] === 'string' || saved[a.id] === null) bindings[a.id] = saved[a.id];
 } catch (e) { /* no storage: defaults */ }
 
-function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(bindings)); } catch (e) { /* ignore */ } }
+let persister = null;
+/** the account layer registers here so rebinding is saved to the profile too */
+export function setBindingsPersister(fn) { persister = fn; }
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(bindings)); } catch (e) { /* ignore */ } if (persister) persister({ ...bindings }); }
+export const exportBindings = () => ({ ...bindings });
+/** apply bindings loaded from an account (does not call the persister) */
+export function importBindings(obj) {
+    if (!obj) return;
+    for (const a of ACTIONS) if (typeof obj[a.id] === 'string' || obj[a.id] === null) bindings[a.id] = obj[a.id];
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(bindings)); } catch (e) { /* ignore */ }
+}
 
 /** every code that is currently held down (keyboard + mouse) */
 export const held = new Set();

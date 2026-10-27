@@ -9,11 +9,31 @@ import { UI } from './ui.js';
 import { View } from './render/view.js';
 import { Online, leaveRoom, sendAct, sendHeld, requestRematch } from './net/online.js';
 import { LobbyUI } from './net/lobbyUI.js';
+import { Queue, joinQueue } from './net/queue.js';
+import { ACC, initAccount, setProfileListener, recordResult } from './account.js';
+import { AccountUI, Toasts } from './accountUI.js';
+import { BorgsUI } from './borgsUI.js';
+import { ChatUI } from './chatUI.js';
+import { Inbox, startInbox, announceSplinter, acceptInvite, acceptRequest, declineRequest } from './net/inbox.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new View($('gameCanvas'));
 const ui = new UI({ $, closeMenu: () => $('menuDropdown').classList.add('hidden') });
 const lobby = new LobbyUI({ root: $('luminary-root'), openBtn: $('onlineBtnStart') });
+const toasts = new Toasts($('luminary-root'));
+const chat = new ChatUI({ root: $('luminary-root') });
+const borgsUI = new BorgsUI({ root: $('luminary-root'), toasts, onInviteSent: () => lobby.open('Invite sent. Waiting for your friend to join…') });
+const accountUI = new AccountUI({ root: $('luminary-root'), startScreen: $('startScreen'), openBorgs: () => borgsUI.open('borgs'), onChange: () => ui.refreshLabels() });
+
+// ---- accounts / inbox
+Inbox.onRequest = (from) => toasts.show({ text: `${from} sent you a borg request`, ttl: 12000, actions: [
+    { label: 'Accept', fn: () => acceptRequest({ id: (getReq(from) || {}).id, from }) }, { label: 'Later', ghost: true, fn: () => borgsUI.open('reqs') }] });
+function getReq(from) { return (JSON.parse(localStorage.getItem('luminary-breq-' + (ACC.status === 'user' ? ACC.userId : 'guest')) || '{}').incoming || []).find(r => r.from === from); }
+Inbox.onInvite = (inv) => toasts.show({ text: `${inv.from} invited you to a ${inv.kind === 'lobby' ? 'custom match' : '1v1'}`, ttl: 20000, actions: [
+    { label: 'Join', fn: () => { lobby.open('Joining…'); acceptInvite(inv); } }, { label: 'Decline', ghost: true }] });
+setProfileListener(() => { startInbox(); ui.refreshLabels(); });
+initAccount().then(() => { if (ACC.status === 'signedOut') accountUI.open('login'); startInbox(); });
+window.addEventListener('pagehide', () => { announceSplinter(); });
 
 // ------------------------------------------------------------------ input
 // Every gameplay control goes through src/controls.js, so each one can be rebound in the
@@ -32,6 +52,8 @@ function toggleFullscreen() {
 function doAction(action) {
     if (action === 'tutorial') { ui.toggleTutorial(); return; }
     if (action === 'fullscreen') { toggleFullscreen(); return; }
+    if (action === 'chat') { chat.toggle(); return; }
+    if (window.__luminaryChat) return;                      // typing a chat message: no game input
     if (S.gameState !== 'playing') return;
     if (S.online === 'guest') {                                    // the host runs the match: forward the input
         const aim = { wx: mouse.worldX, wy: mouse.worldY, dir: mouse.direction };
@@ -61,6 +83,7 @@ function releaseAction(action) {
 window.addEventListener('keydown', (e) => {
     audio.init();
     const acts = actionsFor(e.code);
+    if (acts.includes('chat') && !window.__luminaryChat) e.preventDefault();
     if (acts.length) { if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault(); }
     if (e.repeat) return;
     held.add(e.code);
@@ -151,6 +174,14 @@ const STEP = 1 / 60;
 let acc = 0;
 let last = performance.now();
 
+let resultRecorded = false;
+function onlineGameOver() {
+    if (S.online && S.gameState === 'gameover' && S.winnerRole) {
+        if (!resultRecorded) { resultRecorded = true; recordResult(S.winnerRole === S.online); $('requeueBtn').classList.toggle('hidden', !Online.viaQueue); }
+    } else if (S.gameState !== 'gameover') resultRecorded = false;
+}
+$('requeueBtn').addEventListener('click', () => { $('gameOverModal').classList.add('hidden'); const wasQueue = true; leaveRoom(); backToMenu(); lobby.open(); joinQueue(); });
+
 function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
@@ -161,6 +192,7 @@ function frame(now) {
         if (n === 6) acc = 0;
     }
     ui.guide.tick();
+    onlineGameOver();
     renderHUD();
     view.update(dt, window.__luminaryPaused ? 0 : acc / STEP);
     requestAnimationFrame(frame);
