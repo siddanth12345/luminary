@@ -1,7 +1,7 @@
 // Entry point: input, UI wiring and the fixed-timestep loop. Behaviour of every control is
 // carried over 1:1 from the original single-file game.
 import {
-    S, audio, step, p1, p2, keys, mouse, dramaticZoom,
+    S, audio, step, p1, p2, fighters, keys, mouse, dramaticZoom,
     updateAimMatrix, renderHUD, startMatchSequence, gameOverModal,
 } from './core.js';
 import { held, actionsFor } from './controls.js';
@@ -17,7 +17,8 @@ import { ACC, initAccount, setProfileListener, recordResult } from './account.js
 import { AccountUI, Toasts } from './accountUI.js';
 import { BorgsUI } from './borgsUI.js';
 import { ChatUI } from './chatUI.js';
-import { Inbox, startInbox, announceSplinter, acceptInvite, acceptRequest, declineRequest } from './net/inbox.js';
+import { Inbox, startInbox, announceSplinter, acceptInvite, acceptRequest, declineRequest, sendBorgRequest } from './net/inbox.js';
+import { isBorg, isSelf, getRequests, onBorgs } from './friends.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new View($('gameCanvas'));
@@ -87,6 +88,49 @@ function releaseAction(action) {
     }
 }
 
+// ---- in-game menu: Esc toggles it instantly; it lists the players in the match with an add-borg button
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function renderMenuPlayers() {
+    const box = $('menuPlayers'); if (!box) return;
+    const list = fighters.filter(f => f.active);
+    if (S.gameState === 'start' || !list.length) { box.innerHTML = ''; return; }
+    const outgoing = getRequests().outgoing.map(r => String(r.to).toLowerCase());
+    const humans = list.filter(f => !f.isAI).length;
+    const rows = list.map(f => {
+        const bot = f.isAI;
+        const me = S.match ? f.slot === (S.mySlot || 0) : f === p1;
+        const nm = esc(f.name);
+        let btn = '';
+        if (!bot && !me) {
+            if (isBorg(f.name)) btn = '<span class="lm-mp-tag">borg</span>';
+            else if (outgoing.includes(String(f.name).toLowerCase())) btn = '<span class="lm-mp-tag">sent</span>';
+            else btn = `<button class="lm-mp-add" data-addborg="${nm}" title="Send a borg request">+ Borg</button>`;
+        }
+        return `<div class="lm-mp-row"><span class="lm-mp-dot" style="background:${f.color}"></span><span class="lm-mp-name">${nm}${me ? ' (you)' : ''}${bot ? ' · CPU' : ''}</span>${btn}</div>`;
+    }).join('');
+    box.innerHTML = `<div class="lm-mp-head">Players <b>${list.length}${S.match ? ' / 8' : ''}</b>${list.length !== humans ? ` <i>${humans} human</i>` : ''}</div>${rows}`;
+}
+$('menuPlayers').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const b = e.target.closest('[data-addborg]'); if (!b) return;
+    b.disabled = true;
+    const r = await sendBorgRequest(b.dataset.addborg);
+    toasts.show({ text: r.msg, ttl: 4000 });
+    renderMenuPlayers();
+});
+onBorgs(() => { if (!$('menuDropdown').classList.contains('hidden')) renderMenuPlayers(); });
+function toggleGameMenu() {
+    const dd = $('menuDropdown');
+    if (dd.classList.contains('hidden')) { renderMenuPlayers(); dd.classList.remove('hidden'); } else dd.classList.add('hidden');
+}
+window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Escape' || e.repeat || window.__luminaryChat) return;
+    if (!['playing', 'countdown'].includes(S.gameState)) return;
+    if (document.querySelector('.lm-modal:not(.lm-hidden)') || ui.guide.active) return;   // a dialog / the tutorial owns Esc
+    e.preventDefault();
+    toggleGameMenu();
+});
+
 window.addEventListener('keydown', (e) => {
     audio.init();
     const acts = actionsFor(e.code);
@@ -146,7 +190,7 @@ window.addEventListener('mouseup', (e) => {
 
 // ------------------------------------------------------------------ menus
 const menuDropdown = $('menuDropdown');
-$('menuToggleBtn').addEventListener('click', (e) => { e.stopPropagation(); menuDropdown.classList.toggle('hidden'); });
+$('menuToggleBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleGameMenu(); });
 window.addEventListener('click', () => { if (!menuDropdown.classList.contains('hidden')) menuDropdown.classList.add('hidden'); });
 $('menuResumeBtn').addEventListener('click', () => menuDropdown.classList.add('hidden'));
 $('menuTutorialBtn').addEventListener('click', () => { menuDropdown.classList.add('hidden'); ui.openTutorial(); });

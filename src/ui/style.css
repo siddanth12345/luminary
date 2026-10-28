@@ -172,3 +172,15 @@ kbd{display:inline-block;min-width:22px;text-align:center;padding:1px 7px;border
 .lm-medium-btn:hover{filter:brightness(1.1)}
 .lm-online-btn{background:linear-gradient(90deg,#8b5cf6,#4f46e5);color:#fff;font-weight:800;padding:.875rem 2rem;border-radius:1rem;font-size:1.125rem;line-height:1.75rem;text-transform:uppercase;letter-spacing:.05em;box-shadow:0 20px 25px -5px rgba(139,92,246,.4);transition:filter .15s}
 .lm-online-btn:hover{filter:brightness(1.12)}
+
+/* in-game menu player list */
+.lm-menu-players{display:flex;flex-direction:column;gap:4px;padding-bottom:8px;margin-bottom:2px;border-bottom:1px solid #1e293b;max-height:210px;overflow:auto}
+.lm-menu-players:empty{display:none}
+.lm-mp-head{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#67e8f9}
+.lm-mp-head b{color:#fff}.lm-mp-head i{font-style:normal;color:#94a3b8;margin-left:6px}
+.lm-mp-row{display:flex;align-items:center;gap:6px;font-size:12px;color:#e2e8f0}
+.lm-mp-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.lm-mp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lm-mp-add{flex:none;padding:2px 8px;border-radius:8px;background:#0e7490;color:#ecfeff;font-size:10px;font-weight:800;border:1px solid #22d3ee55}
+.lm-mp-add:hover{background:#0891b2}.lm-mp-add:disabled{opacity:.5}
+.lm-mp-tag{flex:none;font-size:10px;font-weight:800;text-transform:uppercase;color:#4ade80}
