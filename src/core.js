@@ -132,6 +132,7 @@ const mouse = {
 };
 
 function updateAimMatrix() {
+    if (mouse.touchMode) return;                       // on-screen controls set the aim directly
     const centerX = mouse.originX ?? window.innerWidth / 2;
     const centerY = mouse.originY ?? window.innerHeight / 2;
 
@@ -2159,6 +2160,7 @@ export function applyRemote(ev, slot = 1) {
     if (ev.t === 'held') { remote.helds[slot] = { left: !!ev.left, right: !!ev.right, shield: !!ev.shield, drop: !!ev.drop }; }
     if (ev.wx !== undefined) f.remoteAim = { x: ev.wx, y: ev.wy };
     if (ev.t !== 'act' || S.gameState !== 'playing' || f.out) return;
+    if (!(remote.helds[slot] && remote.helds[slot].shield)) f.isShielding = false;   // shield was released before this action
     switch (ev.a) {
         case 'jump': f.jump(); break;
         case 'attack': f.attack(ev.dir); break;

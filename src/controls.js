@@ -42,7 +42,9 @@ export function importBindings(obj) {
 
 /** every code that is currently held down (keyboard + mouse) */
 export const held = new Set();
-export const isDown = (action) => !!bindings[action] && held.has(bindings[action]);
+/** on-screen (touch) controls set these; they count as held inputs just like keys */
+export const virtual = { left: false, right: false, shield: false, drop: false };
+export const isDown = (action) => !!virtual[action] || (!!bindings[action] && held.has(bindings[action]));
 export const actionsFor = (code) => ACTIONS.filter(a => bindings[a.id] === code).map(a => a.id);
 
 /** bind `code` to `action`; if another action used it, the two swap so nothing is left unbound by accident */

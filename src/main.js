@@ -5,6 +5,8 @@ import {
     updateAimMatrix, renderHUD, startMatchSequence, gameOverModal,
 } from './core.js';
 import { held, actionsFor } from './controls.js';
+import { TouchControls } from './touch.js';
+import { LayoutEditor } from './layoutUI.js';
 import { UI } from './ui.js';
 import { View } from './render/view.js';
 import { Online, leaveRoom, sendAct, sendHeld, requestRematch, joinRoom } from './net/online.js';
@@ -23,6 +25,12 @@ import { isBorg, isSelf, getRequests, onBorgs } from './friends.js';
 const $ = (id) => document.getElementById(id);
 const view = new View($('gameCanvas'));
 const ui = new UI({ $, closeMenu: () => $('menuDropdown').classList.add('hidden') });
+const touch = new TouchControls({
+    root: $('luminary-root'), doAction: (a) => doAction(a), releaseAction: (a) => releaseAction(a),
+    cancelF: () => { p1.cancelF(); if (S.online === 'guest') sendAct('cancelF'); },
+    heldChanged: () => { if (S.online === 'guest') sendHeld(); },
+});
+ui.layoutEditor = new LayoutEditor({ root: document.body });
 const lobby = new LobbyUI({ root: $('luminary-root'), openBtn: $('onlineBtnStart') });
 const toasts = new Toasts($('luminary-root'));
 const chat = new ChatUI({ root: $('luminary-root') });
@@ -152,6 +160,7 @@ window.addEventListener('blur', () => { p1.cancelF(); held.clear(); if (S.online
 
 let lastAimSent = 0;
 window.addEventListener('mousemove', (e) => {
+    if (mouse.touchMode) return;
     mouse.x = e.clientX;
     mouse.y = e.clientY;
     view.setPointer(e.clientX, e.clientY);   // pointer -> world position on the play plane
@@ -164,7 +173,7 @@ window.addEventListener('mousemove', (e) => {
 
 window.addEventListener('wheel', (e) => {
     audio.init();
-    if (S.gameState !== 'playing') return;
+    if (S.gameState !== 'playing' || mouse.touchMode) return;
     e.preventDefault();
     if (S.online === 'guest') { sendAct('roll'); return; }
     p1.executeRoll();                        // hold shield + scroll
@@ -174,13 +183,14 @@ window.addEventListener('contextmenu', (e) => e.preventDefault());
 
 window.addEventListener('mousedown', (e) => {
     audio.init();
-    if (inMenu(e)) return;
+    if (inMenu(e) || mouse.touchMode) return;
     const code = 'Mouse' + e.button;
     held.add(code);
     for (const a of actionsFor(code)) doAction(a);
     if (S.online === 'guest') sendHeld();
 });
 window.addEventListener('mouseup', (e) => {
+    if (mouse.touchMode) return;
     const code = 'Mouse' + e.button;
     const was = held.has(code);
     held.delete(code);
@@ -215,7 +225,7 @@ $('closeTrainingPanelBtn').addEventListener('click', () => { trainingPanel.class
 openTrainingBtn.addEventListener('click', () => { trainingPanel.classList.remove('hidden'); openTrainingBtn.classList.add('hidden'); });
 
 for (const [id, mode] of [['easyModeBtn', 'easy'], ['mediumModeBtn', 'medium'], ['hardModeBtn', 'hard'], ['trainingModeBtn', 'training']]) {
-    $(id).addEventListener('click', () => { audio.init(); startMatchSequence(mode); });
+    $(id).addEventListener('click', () => { audio.init(); startMatchSequence(mode); if (mode === 'training' && mouse.touchMode) $('closeTrainingPanelBtn').click(); });
 }
 
 // ------------------------------------------------------------------ loop
@@ -243,6 +253,7 @@ function frame(now) {
         if (n === 6) acc = 0;
     }
     ui.guide.tick();
+    touch.tick();
     onlineGameOver();
     renderHUD();
     view.update(dt, window.__luminaryPaused ? 0 : acc / STEP);
@@ -254,4 +265,4 @@ updateAimMatrix();
 requestAnimationFrame(frame);
 
 // handy for debugging / automated tests
-window.__luminary = { S, p1, p2, view, step, keys, mouse, startMatchSequence };
+window.__luminary = { S, p1, p2, view, step, keys, mouse, startMatchSequence, touch };

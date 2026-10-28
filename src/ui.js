@@ -1,6 +1,7 @@
 // Tutorial + controls settings. Both are plain DOM modals built here; styles live in ui/style.css (.lm-*).
 import { S } from './core.js';
 import { Guide } from './guide.js';
+import { getLayout, setMode } from './layout.js';
 import { ACTIONS, bindings, keyLabel, codeName, setBinding, resetBindings } from './controls.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -111,14 +112,25 @@ const PAGES = [
             </div>`,
     },
     {
+        title: 'Mobile Controls',
+        html: () => `
+            <div class="lm-grid">
+                <div class="lm-card"><h4>Move</h4><p>Touch anywhere on the <b>left half</b> of the screen: a joystick appears under your thumb. Left / right walks, pushing down drops through platforms.</p></div>
+                <div class="lm-card"><h4>Aim grid</h4><p><b>Tap the red centre</b> for a jab. <b>Tap an arrow</b> for the up / side / down J attack. <b>Hold the red centre 0.4 s</b> for the neutral F (Luminary Core), or <b>drag it onto an arrow</b> for that F move (Spiral, Blink, Suplex / Headbutt).</p></div>
+                <div class="lm-card"><h4>Shield &amp; grab</h4><p>Hold <b>Shield</b>. While shielding, move the joystick left or right to roll. Drag the Shield button in a direction to dash-grab that way.</p></div>
+                <div class="lm-card"><h4>Jump &amp; dash</h4><p>Tap <b>Jump</b> (up to four in the air). <b>Dash</b> goes the way you are pushing the joystick, or the way you face.</p></div>
+                <div class="lm-card"><h4>Your layout</h4><p>Open <b>Settings</b> and choose <b>Edit layout</b> to move the buttons and change their size. You can also force PC or Mobile controls there.</p></div>
+            </div>`,
+    },
+    {
         title: 'Your Controls',
         html: (k) => `
             <table class="lm-table lm-wide lm-keys">
                 ${ACTIONS.map(a => `<tr><td>${esc(a.label)}</td><td><kbd>${esc(k(a.id))}</kbd></td></tr>`).join('')}
                 <tr><td>Roll (alternative)</td><td><kbd>Shield + Scroll</kbd></td></tr>
             </table>
-            <p class="lm-note">Everything above can be changed in <b>Controls</b> (start screen or pause menu).</p>
-            <button class="lm-btn lm-btn-ghost" data-open-settings>Change controls…</button>`,
+            <p class="lm-note">Everything above can be changed in <b>Settings</b> (start screen or pause menu).</p>
+            <button class="lm-btn lm-btn-ghost" data-open-settings>Open settings…</button>`,
     },
 ];
 
@@ -151,12 +163,12 @@ export class UI {
         this.set = document.createElement('div');
         this.set.className = 'lm-modal lm-hidden';
         this.set.innerHTML = `
-            <div class="lm-panel lm-panel-sm" role="dialog" aria-label="Controls">
-                <div class="lm-head"><h2>Controls</h2><button class="lm-x" data-close aria-label="Close">✕</button></div>
-                <p class="lm-note lm-hint">Click a control, then press the key or mouse button you want. Esc cancels. Binding something that is already used swaps the two.</p>
+            <div class="lm-panel lm-panel-sm" role="dialog" aria-label="Settings">
+                <div class="lm-head"><h2>Settings</h2><button class="lm-x" data-close aria-label="Close">✕</button></div>
+                <p class="lm-note lm-hint">PC controls: click a control, then press the key or mouse button you want. Esc cancels. Binding something that is already used swaps the two.</p>
                 <div class="lm-body lm-rows"></div>
                 <div class="lm-foot">
-                    <button class="lm-btn lm-btn-ghost" data-reset>Reset to defaults</button>
+                    <button class="lm-btn lm-btn-ghost" data-reset>Reset PC controls</button>
                     <button class="lm-btn" data-close>Done</button>
                 </div>
             </div>`;
@@ -231,14 +243,30 @@ export class UI {
 
     renderSettings() {
         const rows = this.set.querySelector('.lm-rows');
-        let group = '', html = '';
+        const L = getLayout();
+        let group = '', html = `<h4 class="lm-group">Layout</h4>
+            <div class="lm-row"><span>Control layout<small class="lm-sub">Auto uses touch controls on phones and tablets</small></span>
+              <span class="lm-seg">${[['auto', 'Auto'], ['pc', 'PC'], ['mobile', 'Mobile']].map(([m, t]) => `<button class="lm-segb${L.mode === m ? ' on' : ''}" data-mode="${m}">${t}</button>`).join('')}</span></div>
+            <div class="lm-row"><span>Mobile button layout<small class="lm-sub">Move the grid, jump, shield and dash buttons and resize them</small></span><button class="lm-key" data-edit-layout>Edit layout…</button></div>
+            <div class="lm-row"><span>Fullscreen</span><button class="lm-key" data-fs>Toggle</button></div>
+            <h4 class="lm-group">PC controls (keyboard &amp; mouse)</h4>`;
+        group = 'PC';
         for (const a of ACTIONS) {
             if (a.group !== group) { group = a.group; html += `<h4 class="lm-group">${esc(group)}</h4>`; }
             html += `<div class="lm-row"><span>${esc(a.label)}</span><button class="lm-key" data-action="${a.id}">${esc(codeName(bindings[a.id]))}</button></div>`;
         }
         html += `<div class="lm-row"><span>Roll (alternative)</span><span class="lm-fixed">Shield + Scroll wheel</span></div>`;
         rows.innerHTML = html;
-        rows.querySelectorAll('.lm-key').forEach(b => b.addEventListener('click', () => this.startCapture(b.dataset.action, b)));
+        rows.querySelectorAll('.lm-key[data-action]').forEach(b => b.addEventListener('click', () => this.startCapture(b.dataset.action, b)));
+        rows.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); this.renderSettings(); }));
+        const fs = rows.querySelector('[data-fs]');
+        if (fs) fs.addEventListener('click', () => { try { if (document.fullscreenElement) document.exitFullscreen(); else { const p = document.documentElement.requestFullscreen(); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* not allowed here */ } });
+        const ed = rows.querySelector('[data-edit-layout]');
+        if (ed) ed.addEventListener('click', () => {
+            if (!this.layoutEditor) return;
+            this.set.classList.add('lm-hidden');                       // the editor is its own full screen on top
+            this.layoutEditor.open(() => { this.set.classList.remove('lm-hidden'); this.renderSettings(); });
+        });
     }
 
     startCapture(action, btn) {

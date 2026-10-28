@@ -172,6 +172,7 @@ export class View {
     setPointer(clientX, clientY) { this.clientX = clientX; this.clientY = clientY; this.updateAim(); }
 
     updateAim() {
+        if (mouse.touchMode) return;
         const ndc = new THREE.Vector2((this.clientX / this.w) * 2 - 1, -(this.clientY / this.h) * 2 + 1);
         this.ray.setFromCamera(ndc, this.camera);
         if (this.ray.ray.intersectPlane(this.plane, this.hit)) {
