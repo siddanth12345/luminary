@@ -5,7 +5,7 @@ import { MQTT_JS, MQTT_BROKERS } from './config.js';
 
 const forced = () => { try { return localStorage.getItem('luminary-transport'); } catch (e) { return null; } };
 /** true when messages can reach other computers (anything except the same-browser test transport) */
-export const hasRealtime = () => forced() !== 'local';
+export const hasRealtime = () => forced() !== 'local' && !onlineBlocked;
 
 // ---- public MQTT broker over WebSocket: works between computers with no account or server of our own
 let mqttClient = null, mqttLoading = null;
@@ -18,12 +18,16 @@ function loadMqtt() {
         document.head.appendChild(s);
     });
 }
+let blocked = false;
+window.addEventListener('securitypolicyviolation', (e) => { if (/^wss?:/.test(e.blockedURI || '') || e.violatedDirective === 'connect-src') blocked = true; });
+export let onlineBlocked = false;     // true when this page cannot reach the internet (sandboxed preview): same-browser play only
 function connectBroker(url) {
     return new Promise((resolve, reject) => {
+        const poll = setInterval(() => { if (blocked) { clearInterval(poll); reject(new Error('blocked')); } }, 100);
         const c = window.mqtt.connect(url, { reconnectPeriod: 2000, connectTimeout: 6000, clean: true, clientId: 'lum_' + Math.random().toString(16).slice(2, 12) });
-        const timer = setTimeout(() => { try { c.end(true); } catch (e) { /* ignore */ } reject(new Error('broker timeout')); }, 7000);
-        c.once('connect', () => { clearTimeout(timer); resolve(c); });
-        c.once('error', (e) => { clearTimeout(timer); try { c.end(true); } catch (x) { /* ignore */ } reject(e); });
+        const timer = setTimeout(() => { clearInterval(poll); try { c.end(true); } catch (e) { /* ignore */ } reject(new Error('broker timeout')); }, 5000);
+        c.once('connect', () => { clearTimeout(timer); clearInterval(poll); resolve(c); });
+        c.once('error', (e) => { clearTimeout(timer); clearInterval(poll); try { c.end(true); } catch (x) { /* ignore */ } reject(e); });
     });
 }
 async function getMqtt() {
@@ -32,6 +36,7 @@ async function getMqtt() {
         await loadMqtt();
         let last = null;
         for (const url of MQTT_BROKERS) {
+            if (blocked) break;
             try {
                 const c = await connectBroker(url);
                 c.on('message', (topic, buf) => {
@@ -90,7 +95,12 @@ class SupabaseTransport {
 
 export async function openTransport(code) {
     const mode = forced();
-    const t = mode === 'local' ? new LocalTransport(code) : (mode !== 'mqtt' && supabaseConfigured()) ? new SupabaseTransport(code) : new MqttTransport(code);
-    await t.open();
+    let t = mode === 'local' ? new LocalTransport(code) : (mode !== 'mqtt' && supabaseConfigured()) ? new SupabaseTransport(code) : new MqttTransport(code);
+    try { await t.open(); }
+    catch (e) {                                  // no internet route (e.g. the sandboxed preview): fall back to same-browser play
+        if (t.local) throw e;
+        onlineBlocked = true;
+        t = new LocalTransport(code); await t.open();
+    }
     return t;
 }

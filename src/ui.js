@@ -104,6 +104,7 @@ const PAGES = [
         html: () => `
             <div class="lm-grid">
                 <div class="lm-card"><h4>Easy</h4><p>Slow, defensive, shields a lot and throws the odd small Core.</p></div>
+                <div class="lm-card"><h4>Medium</h4><p>Between Easy and Hard: it uses every move, but reacts more slowly, shields and counters less often, and does not learn your habits. In custom matches you can add Easy, Medium or Hard CPUs.</p></div>
                 <div class="lm-card"><h4>Hard</h4><p>Uses every move under the same rules you do. It fires Cores when you are on or near an edge, shields incoming Cores, grabs shielders, counters your attacks, and rolls out of combos.</p></div>
                 <div class="lm-card"><h4>It learns</h4><p>The Hard bot watches which moves you favour and remembers it between matches in this browser, then leans toward whatever beats your habits.</p></div>
                 <div class="lm-card"><h4>Training</h4><p>An idle dummy with infinite stocks and normal physics. Good for practising counters and combos.</p></div>

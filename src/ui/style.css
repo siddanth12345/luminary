@@ -164,3 +164,5 @@ kbd{display:inline-block;min-width:22px;text-align:center;padding:1px 7px;border
 .lm-setrow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;font-size:13px}
 .lm-setrow input{width:84px;background:#0a1626;border:1px solid #27465c;border-radius:10px;color:#e2e8f0;padding:6px 8px;font-weight:700}
 .lm-foot2{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.lm-step{display:inline-flex;align-items:center;gap:4px}
+.lm-step input{width:64px;text-align:center}

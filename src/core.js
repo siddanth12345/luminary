@@ -236,6 +236,7 @@ class Fighter {
     constructor(x, y, color, name, isAI = false) {
         this.startX = x;
         this.startY = y;
+        this.home = { x, y, color, name };       // restored when leaving a custom match
         this.x = x;
         this.y = y;
         this.vx = 0;
@@ -1236,7 +1237,7 @@ const botMem = (() => {
 function saveBotMemory() { try { localStorage.setItem(BOT_MEM_KEY, JSON.stringify(botMem)); } catch (e) { /* storage unavailable */ } }
 const MEM_KEYS = ['SHIELD', 'J', 'DASH', 'GRAB', 'CORE', 'BLINK', 'SPIRAL', 'SUPLEX', 'HEADBUTT'];
 /** how often the player uses `k` (0..1, smoothed so a short history can't be extreme) */
-function habit(k) {
+function habitOf(k) {
     let total = 0;
     for (const m of MEM_KEYS) total += botMem[m] || 0;
     return ((botMem[k] || 0) + 1) / (total + MEM_KEYS.length);
@@ -1249,7 +1250,10 @@ class AIBot extends Fighter {
         this.shieldHold = 0;
         this.lastSeen = null;
         this.memSaveT = 0;
+        this.diff = null;                       // custom matches: 'easy' | 'medium' | 'hard' per bot
     }
+
+    get level() { return this.diff || (S.gameMode === 'easy' ? 'easy' : S.gameMode === 'medium' ? 'medium' : 'hard'); }
 
     /** watch the player (learn their habits) */
     observe(target) {
@@ -1303,7 +1307,7 @@ class AIBot extends Fighter {
             return;
         }
 
-        this.observe(target);
+        if (this.level === 'hard') this.observe(target);
 
         if (this.hitstun > 0 || this.dizzyTimer > 0 || this.clashStunTimer > 0 || this.grabbedBy || this.freezeTimer > 0) {
             this.shieldHold = 0;
@@ -1350,13 +1354,13 @@ class AIBot extends Fighter {
             this.facing = distToTargetX > 0 ? 1 : -1;
             if (this.chargeFrames >= this.aiChargeGoal) {
                 const flight = Math.min(30, dist / 20);
-                const lead = S.gameMode === 'hard' ? flight * 0.6 : 0;
+                const lead = this.level === 'hard' ? flight * 0.6 : 0;
                 this.fRelease('NEUTRAL', target.x + target.vx * lead, target.y + target.vy * lead * 0.5);
             }
             return;
         }
 
-        if (S.gameMode === 'easy') {
+        if (this.level === 'easy') {
             const reactionRate = 35;
             const movementSpeed = 0.55;
 
@@ -1389,7 +1393,9 @@ class AIBot extends Fighter {
             return;
         }
 
-        // ------------------------------------------------------------ hard
+        // ------------------------------------------------------------ medium / hard (medium: slower, no habit learning, fewer counters)
+        const med = this.level === 'medium';
+        const habit = (k) => med ? 0 : habitOf(k);
         const nearLeftEdge = this.x < STAGE.x + 180;
         const nearRightEdge = this.x > STAGE.x + STAGE.width - 180;
         const isOffStage = nearLeftEdge || nearRightEdge || this.y > STAGE.y + 20;
@@ -1399,14 +1405,14 @@ class AIBot extends Fighter {
             return;
         }
 
-        const speedMultiplier = isOffStage ? 1.4 : 1.365;
+        const speedMultiplier = (isOffStage ? 1.4 : 1.365) * (med ? 0.78 : 1);
 
         const targetIsOffStage = target.x < STAGE.x - 20 || target.x > STAGE.x + STAGE.width + 20 || target.y > STAGE.y + 10 || target.isHanging;
         const targetOnEdge = target.isHanging || target.x < STAGE.x + 140 || target.x > STAGE.x + STAGE.width - 140;
 
         // the player is on / over the edge: shoot a Luminary Core at them from range
         if ((targetIsOffStage || targetOnEdge) && this.grounded && dist > 280 && this.cd.CORE <= 0 &&
-            this.actionTimer % 10 === 0 && Math.random() < 0.55) {
+            this.actionTimer % 10 === 0 && Math.random() < (med ? 0.25 : 0.55)) {
             if (this.beginCore(target, 35 + Math.random() * 28)) return;
         }
 
@@ -1422,7 +1428,7 @@ class AIBot extends Fighter {
             return;
         }
 
-        if (this.actionTimer % 7 === 0) {
+        if (this.actionTimer % (med ? 12 : 7) === 0) {
             this.facing = distToTargetX > 0 ? 1 : -1;
             const tMove = target.isShielding ? 'SHIELD' : (target.activeMove ? target.activeMove.type : null);
             const aim = distToTargetY < -40 ? 'UP' : (distToTargetY > 40 ? 'DOWN' : (this.facing === 1 ? 'SIDE_RIGHT' : 'SIDE_LEFT'));
@@ -1433,7 +1439,7 @@ class AIBot extends Fighter {
 
             // 1) a core is coming: raise the shield (counters everything but grab)
             const incoming = orbs.find(o => o.owner === target && Math.hypot(o.x - this.x, o.y - this.y) < 300);
-            if (incoming && Math.random() < 0.75) { this.raiseShield(40); return; }
+            if (incoming && Math.random() < (med ? 0.4 : 0.75)) { this.raiseShield(40); return; }
 
             // 2) the player is mid-attack right next to us: counter it
             if (dist < 170 && (target.isGrabDashing || (tMove && tMove !== 'SHIELD' && tMove !== 'GRAB'))) {
@@ -1533,7 +1539,7 @@ const p1 = new Fighter(STAGE.x + 300, STAGE.y - 100, '#06b6d4', 'Player 1');
 const p2 = new AIBot(STAGE.x + 1200, STAGE.y - 100, '#f43f5e', 'AI Bot');
 /** every possible fighter: p1 = this browser's player (or the host), p2 = the bot / first guest, p3..p8 = more guests in custom matches */
 export const fighters = [p1, p2];
-for (let i = 2; i < 8; i++) { const f = new Fighter(STAGE.x + 300 * i, STAGE.y - 100, '#9ca3af', 'Player ' + (i + 1)); f.active = false; fighters.push(f); }
+for (let i = 2; i < 8; i++) { const f = new AIBot(STAGE.x + 300 * i, STAGE.y - 100, '#9ca3af', 'Player ' + (i + 1)); f.active = false; fighters.push(f); }
 fighters.forEach((f, i) => { f.slot = i; });
 const isAlive = (f) => f.active && !f.out;
 /** who this fighter can hurt: everyone still in the match, except teammates in team matches */
@@ -1582,7 +1588,7 @@ function launch(attacker, defender, hb) {
     defender.interrupt();
     defender.damage += hb.damage;
 
-    if (defender.isAI && S.gameMode === 'hard') {
+    if (defender.isAI && defender.level === 'hard') {
         defender.incomingHitCount++;
         if (!hb.stun && defender.grounded && defender.incomingHitCount >= 3 && defender.rollCooldown <= 0) {
             defender.incomingHitCount = 0;
@@ -1981,7 +1987,8 @@ function startMatchSequence(mode, cfg) {
         S.match = null; S.mySlot = 0; S.matchCfg = null;
         if (S.arena !== 'normal') setArena('normal');
         for (let i = 2; i < fighters.length; i++) fighters[i].active = false;
-        p1.active = p2.active = true; p1.team = p2.team = null; p1.out = p2.out = false;
+        p1.active = p2.active = true; p1.team = p2.team = null; p1.out = p2.out = false; p2.diff = null; p2.isAI = true;
+        for (const f of [p1, p2]) { f.startX = f.home.x; f.startY = f.home.y; f.color = f.home.color; f.name = f.home.name; }
     }
     document.getElementById('startScreen').classList.add('hidden');
     document.getElementById('gameOverModal').classList.add('hidden');
@@ -1994,7 +2001,7 @@ function startMatchSequence(mode, cfg) {
         cfg.players.forEach((pl, i) => {
             // the local player is always drawn as p1 (slot 0 locally): swap slot 0 and my slot
             const f = fighters[pl.slot];
-            f.active = true; f.name = pl.name; f.team = S.match.teams ? pl.team : null; f.isAI = false;
+            f.active = true; f.name = pl.name; f.team = S.match.teams ? pl.team : null; f.isAI = !!pl.bot; f.diff = pl.bot || null; f.shieldHold = 0;
             f.color = S.match.teams && pl.team ? TEAM_COLORS[pl.team] : FFA_COLORS[pl.slot % 8];
             f.superColor = null;
             f.startX = STAGE.x + STAGE.width * 0.15 + (n > 1 ? span * i / (n - 1) : span / 2);
@@ -2029,8 +2036,14 @@ function startMatchSequence(mode, cfg) {
         aiDescText.textContent = "Slower movement, passive attacks & defensive shield";
         document.getElementById('trainingControlPanel').classList.add('hidden');
         document.getElementById('openTrainingPanelBtn').classList.add('hidden');
+    } else if (S.gameMode === 'medium') {
+        modeLabel.textContent = "MODE: MEDIUM";
+        aiDiffLabel.textContent = "Medium Bot";
+        aiDescText.textContent = "Uses every move, but reacts slower and doesn't learn your habits";
+        document.getElementById('trainingControlPanel').classList.add('hidden');
+        document.getElementById('openTrainingPanelBtn').classList.add('hidden');
     } else if (S.gameMode === 'hard') {
-        modeLabel.textContent = "MODE: HARD";
+        modeLabel.textContent = "MODE: HARD"
         aiDiffLabel.textContent = "Hard Bot";
         aiDescText.textContent = "Learns your habits • Core zoning • Ledge Guard & Counter-Rolls";
         document.getElementById('trainingControlPanel').classList.add('hidden');
@@ -2158,7 +2171,7 @@ export function applyRemote(ev, slot = 1) {
     }
 }
 
-const FKEYS = Object.keys(new Fighter(0, 0, '#000', 'k')).filter(k => !['color', 'name', 'isAI', 'startX', 'width', 'height'].includes(k));
+const FKEYS = Object.keys(new Fighter(0, 0, '#000', 'k')).filter(k => !['color', 'name', 'isAI', 'startX', 'width', 'height', 'home'].includes(k));
 const REFS = ['grabHolding', 'grabbedBy', 'grabVictim', 'suplexTarget'];
 const SWING_NAMES = Object.keys(SWING);
 const r2 = (v) => typeof v === 'number' ? Math.round(v * 100) / 100 : v;
@@ -2281,6 +2294,7 @@ export function step() {
     } else if (S.gameState === 'playing' && S.match) {      // custom match: up to 8 fighters, steered by their players
         const live = fighters.filter(isAlive);
         for (const f of live) {
+            if (f.isAI) { const foe = nearestOf(f, foesOf(f)); if (foe) f.updateAI(foe); f.update(); continue; }
             drive(f, f === p1 ? { left: isDown('left'), right: isDown('right'), shield: isDown('shield'), drop: isDown('drop') } : (remote.helds[f.slot] || NOHELD));
             f.update();
         }

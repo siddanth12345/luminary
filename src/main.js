@@ -170,7 +170,7 @@ const openTrainingBtn = $('openTrainingPanelBtn');
 $('closeTrainingPanelBtn').addEventListener('click', () => { trainingPanel.classList.add('hidden'); openTrainingBtn.classList.remove('hidden'); });
 openTrainingBtn.addEventListener('click', () => { trainingPanel.classList.remove('hidden'); openTrainingBtn.classList.add('hidden'); });
 
-for (const [id, mode] of [['easyModeBtn', 'easy'], ['hardModeBtn', 'hard'], ['trainingModeBtn', 'training']]) {
+for (const [id, mode] of [['easyModeBtn', 'easy'], ['mediumModeBtn', 'medium'], ['hardModeBtn', 'hard'], ['trainingModeBtn', 'training']]) {
     $(id).addEventListener('click', () => { audio.init(); startMatchSequence(mode); });
 }
 

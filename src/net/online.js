@@ -104,7 +104,7 @@ export async function hostRoom(code, mode = 'pvp') {
 
 // ---------------------------------------------------------------- custom-match lobby (host side)
 const memberOf = (m) => Online.lobby.members.find(x => x.id === m.id && x.id !== 'host');
-const publicLobby = () => ({ t: 'lobby', settings: Online.lobby.settings, started: Online.lobby.started, members: Online.lobby.members.map(x => ({ slot: x.slot, name: x.name, team: x.team })) });
+const publicLobby = () => ({ t: 'lobby', settings: Online.lobby.settings, started: Online.lobby.started, members: Online.lobby.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null })) });
 export function lobbyPush() { if (Online.role === 'host' && Online.mode === 'lobby') { Online.t.send(publicLobby()); Online.onChange(); } }
 function lobbyHello(m) {
     const L = Online.lobby;
@@ -134,23 +134,36 @@ function lobbyTick() {
 }
 export function setLobbySetting(k, v) {
     if (Online.role !== 'host' || Online.lobby.started) return;
+    if (Online.lobby.settings[k] === v) return;       // no change: don't rebuild the panel under the user's mouse
     Online.lobby.settings[k] = v; lobbyPush();
 }
 export function setMemberTeam(slot, team) {
     if (Online.role === 'host') { const mem = Online.lobby.members.find(x => x.slot === slot); if (mem && TEAMS.includes(team)) { mem.team = team; lobbyPush(); } }
     else if (Online.role === 'guest' && slot === Online.slot && Online.t) Online.t.send({ t: 'team', id: Online.myId, team });
 }
+export function addBot(level) {
+    if (Online.role !== 'host' || Online.mode !== 'lobby' || Online.lobby.started) return false;
+    const L = Online.lobby;
+    if (L.members.length >= MAX_PLAYERS || !['easy', 'medium', 'hard'].includes(level)) return false;
+    let slot = 1; while (L.members.some(x => x.slot === slot)) slot++;
+    const counts = TEAMS.map(tm => L.members.filter(x => x.team === tm).length);
+    const n = L.members.filter(x => x.bot).length + 1;
+    L.members.push({ id: 'bot' + slot + '_' + Math.random().toString(36).slice(2, 5), slot, name: `CPU ${n} (${level})`, team: TEAMS[counts.indexOf(Math.min(...counts))], bot: level, seen: Infinity });
+    lobbyPush();
+    return true;
+}
 export function kickMember(slot) {
     if (Online.role !== 'host') return;
     const mem = Online.lobby.members.find(x => x.slot === slot); if (!mem || mem.id === 'host') return;
-    Online.t.send({ t: 'kick', to: mem.id }); dropMember(mem);
+    if (!mem.bot) Online.t.send({ t: 'kick', to: mem.id });
+    dropMember(mem);
 }
 export function beginLobbyMatch() {
     if (Online.role !== 'host' || Online.mode !== 'lobby') return false;
     const L = Online.lobby;
     if (L.members.length < 2) { Online.note = 'You need at least 2 players'; Online.onChange(); return false; }
     L.started = true;
-    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team })), teams: L.settings.teams, startDamage: +L.settings.startDamage || 0, stocks: +L.settings.stocks || 3 };
+    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null })), teams: L.settings.teams, startDamage: +L.settings.startDamage || 0, stocks: +L.settings.stocks || 3 };
     S.online = 'host'; S.opponentName = null;
     NETHOOK.send = (snap) => Online.t && Online.t.send({ t: 'snap', s: snap });
     Online.t.send({ t: 'start', cfg });
