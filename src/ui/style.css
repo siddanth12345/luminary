@@ -166,3 +166,9 @@ kbd{display:inline-block;min-width:22px;text-align:center;padding:1px 7px;border
 .lm-foot2{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .lm-step{display:inline-flex;align-items:center;gap:4px}
 .lm-step input{width:64px;text-align:center}
+
+/* Medium mode button (yellow): own rules, the compiled utility set has no amber/orange gradient */
+.lm-medium-btn{background:linear-gradient(90deg,#fbbf24,#f97316);color:#020617;font-weight:800;padding:.875rem 2rem;border-radius:1rem;font-size:1.125rem;line-height:1.75rem;text-transform:uppercase;letter-spacing:.05em;box-shadow:0 20px 25px -5px rgba(245,158,11,.4);transition:filter .15s,transform .15s}
+.lm-medium-btn:hover{filter:brightness(1.1)}
+.lm-online-btn{background:linear-gradient(90deg,#8b5cf6,#4f46e5);color:#fff;font-weight:800;padding:.875rem 2rem;border-radius:1rem;font-size:1.125rem;line-height:1.75rem;text-transform:uppercase;letter-spacing:.05em;box-shadow:0 20px 25px -5px rgba(139,92,246,.4);transition:filter .15s}
+.lm-online-btn:hover{filter:brightness(1.12)}
