@@ -42,7 +42,7 @@ function handle(m) {
         case 'splinter': if (txt(m.from, 40)) B.markSplinteredFrom(m.from); break;
         case 'invite': {
             if (!txt(m.from, 40) || !txt(m.to, 40) || !txt(m.code, 8) || m.to.toLowerCase() !== me) break;
-            const inv = { id: Math.random().toString(36).slice(2), from: m.from, code: m.code, kind: m.kind === 'lobby' ? 'lobby' : '1v1', expires: Date.now() + 20000 };
+            const inv = { id: Math.random().toString(36).slice(2), from: m.from, code: m.code, kind: m.kind === 'lobby' ? 'lobby' : m.kind === 'party' ? 'party' : '1v1', expires: Date.now() + 20000 };
             const dup = Inbox.invites.some(i => i.from === inv.from && i.code === inv.code && i.expires > Date.now());
             Inbox.invites = [...Inbox.invites.filter(i => i.from !== inv.from), dup ? Inbox.invites.find(i => i.from === inv.from) : inv];
             if (!dup) Inbox.onInvite(inv);
@@ -109,7 +109,13 @@ export async function inviteToLobby(name) {
   await send({ t: 'invite', kind: 'lobby', from: displayName(), to: name.toLowerCase(), code: Online.code }, 4, 150);
   return { ok: true, msg: `Invite sent to ${name}.` };
 }
+export async function inviteToParty(name, code) {
+  if (!B.isOnlineName(name)) return { ok: false, msg: `${name} is not online right now.` };
+  await send({ t: 'invite', kind: 'party', from: displayName(), to: name.toLowerCase(), code }, 4, 150);
+  return { ok: true, msg: `Party invite sent to ${name}.` };
+}
 export async function acceptInvite(inv) {
   Inbox.invites = Inbox.invites.filter(i => i.id !== inv.id);
+  if (inv.kind === 'party') return Inbox.joinParty ? Inbox.joinParty(inv.code) : false;
   return joinRoom(inv.code);
 }

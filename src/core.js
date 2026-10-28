@@ -49,6 +49,41 @@ const BLAST_ZONES = {
     top: -160,
     bottom: 2300
 };
+STAGE.platforms = [];                       // soft (one-way) platforms: { x, y, w } with x = left edge, y = top surface
+
+/** the normal 1v1 / bot arena, and the custom-match arena: stage + kill zone 2.5x bigger, with Battlefield-style platforms */
+const ARENAS = {
+    normal: {
+        world: { width: 3800, height: 2100 },
+        stage: { x: 1140, y: 1250, width: 1520, height: 90 },
+        bz: { left: -380, right: 4180, top: -160, bottom: 2300 },
+        platforms: () => [],
+    },
+    lobby: {
+        world: { width: 9500, height: 5250 },
+        stage: { x: 2850, y: 3125, width: 3800, height: 225 },
+        bz: { left: -950, right: 10450, top: -400, bottom: 5750 },
+        // Big Battlefield: two side platforms and one high platform in the middle
+        platforms: (st) => {
+            const w = Math.round(st.width * 0.22), cx = st.x + st.width / 2;
+            return [
+                { x: Math.round(cx - st.width * 0.25 - w / 2), y: st.y - 200, w },
+                { x: Math.round(cx + st.width * 0.25 - w / 2), y: st.y - 200, w },
+                { x: Math.round(cx - w / 2), y: st.y - 390, w },
+            ];
+        },
+    },
+};
+export function setArena(kind) {
+    const a = ARENAS[kind] || ARENAS.normal;
+    Object.assign(WORLD, a.world);
+    Object.assign(STAGE, a.stage);
+    STAGE.platforms = a.platforms(STAGE);
+    Object.assign(BLAST_ZONES, a.bz);
+    S.arena = kind === 'lobby' ? 'lobby' : 'normal';
+    S.arenaVersion = (S.arenaVersion || 0) + 1;
+}
+
 
 // ----------------------------------------------------------------- tuning (frames @ 60 Hz)
 export const ATTACK_FRAMES = 18;
@@ -213,6 +248,12 @@ class Fighter {
 
         this.damage = 0;
         this.stocks = 3;
+        this.active = true;                  // takes part in the match (custom matches use up to 8)
+        this.out = false;                    // out of stocks
+        this.team = null;                    // 'red' | 'blue' | 'yellow' | 'green' in team matches
+        this.slot = 0;
+        this.superColor = null;
+        this.dropT = 0;                      // frames during which soft platforms are ignored (dropping through)
 
         this.maxJumps = 4;
         this.jumpsLeft = 4;
@@ -303,7 +344,7 @@ class Fighter {
         this.y = STAGE.y - 300;
         this.vx = 0;
         this.vy = 0;
-        this.damage = 0;
+        this.damage = (fullReset && S.match) ? S.match.startDamage : 0;    // custom match: choose the starting damage
         this.jumpsLeft = this.maxJumps;
         this.isHanging = false;
         this.canMouseDash = true;
@@ -312,6 +353,7 @@ class Fighter {
         this.isGrabDashing = false;
         this.isRolling = false;
         this.rollTimer = 0;
+        this.dropT = 0;
         this.grabHolding = null;
         this.grabbedBy = null;
         this.grabTimer = 0;
@@ -330,7 +372,8 @@ class Fighter {
         this.initCombat();
 
         if (fullReset) {
-            this.stocks = 3;
+            this.stocks = S.match ? S.match.stocks : 3;
+            this.out = false;
         }
     }
 
@@ -359,6 +402,7 @@ class Fighter {
     }
 
     update() {
+        if (this.dropT > 0) this.dropT--;
         if (this.damage >= 250) {
             this.takeKO();
             return;
@@ -723,7 +767,7 @@ class Fighter {
         const speed = (22.5 + (16.25 * 1.3 - 22.5) * charge) * 0.7;   // 0.7x of the previous speed (15.75 uncharged -> 14.8 full)
         const r = 12 + (62 * 0.8 * 0.8 - 12) * charge;        // min 12 (2x smaller), max 39.7 (0.8x the previous max)
         const full = charge >= 1;
-        const color = full ? (this === p1 ? '#a855f7' : '#fb923c') : this.color;   // full charge: blue -> purple, red -> orange
+        const color = full ? (this.superColor || (this === p1 ? '#a855f7' : '#fb923c')) : this.color;   // full charge: blue -> purple, red -> orange
         orbs.push({
             x: this.x + dx * (40 + r * 0.4), y: this.y + dy * (40 + r * 0.4),
             vx: dx * speed, vy: dy * speed, r, charge, owner: this, life: 260, color, id: ++orbSerial,
@@ -773,7 +817,7 @@ class Fighter {
         this.suplexPending = true;
         this.isGrabDashing = true;
         // homing: lock onto an opponent inside 0.45 of the stage length, otherwise it is a blank dash forward
-        const foe = this === p1 ? p2 : p1;
+        const foe = nearestOf(this, foesOf(this));
         const inRange = foe && Math.hypot(foe.x - this.x, foe.y - this.y) <= STAGE.width * SUPLEX_DETECT;
         this.suplexTarget = inRange ? foe : null;
         if (inRange) {
@@ -886,9 +930,8 @@ class Fighter {
     }
 
     hangLedge(side) {
-        const other = this === p1 ? p2 : p1;
         // one fighter per ledge: whoever arrives second kicks the first one off (3 s without a ledge)
-        if (other.isHanging && other.hangSide === side) other.kickFromLedge(KICK_BAN);
+        for (const other of fighters) if (other !== this && other.active && other.isHanging && other.hangSide === side) other.kickFromLedge(KICK_BAN);
 
         this.isHanging = true;
         this.hangSide = side;
@@ -982,6 +1025,31 @@ class Fighter {
             }
         } else {
             this.grounded = false;
+        }
+
+        // soft platforms (custom-match arena): you land on top when coming down onto them, and pass through from below
+        if (!this.grounded && STAGE.platforms.length && this.dropT <= 0 && vy0 >= 0) {
+            const bottom = this.y + this.height / 2, prevBottom = this.py + this.height / 2;
+            for (const pl of STAGE.platforms) {
+                if (this.x + this.width / 2 > pl.x && this.x - this.width / 2 < pl.x + pl.w &&
+                    bottom > pl.y - 0.5 && prevBottom <= pl.y + 1 && bottom < pl.y + 60) {
+                    this.y = pl.y - this.height / 2;
+                    if (bounce && vy0 > MIN_BOUNCE) {
+                        this.vy = -vy0 * BOUNCE; this.vx = vx0 * 0.9;
+                        fx('hit', this.x, pl.y, Math.min(16, vy0 * 0.6), -Math.PI / 2);
+                        break;
+                    }
+                    this.vy = 0;
+                    if (bounce) this.vx *= 0.35;
+                    this.grounded = true;
+                    this.jumpsLeft = this.maxJumps;
+                    this.canMouseDash = true;
+                    this.canGrab = true;
+                    this.isHanging = false;
+                    this.airSpecials = 0;
+                    break;
+                }
+            }
         }
     }
 
@@ -1133,11 +1201,17 @@ class Fighter {
             width: 32
         });
 
+        if (this.stocks <= 0 && S.match) {                 // custom match: out of the game, the match may be over
+            this.out = true; this.vx = 0; this.vy = 0; this.isShielding = false; this.fActive = false;
+            if (S.online !== 'guest') checkMatchEnd();
+            return;
+        }
         if (this.stocks <= 0) {
             saveBotMemory();
             if (S.online === 'host') {                       // human vs human: the other fighter wins
                 const winner = this === p1 ? p2 : p1;
                 triggerDramaticZoom(winner);
+                S.iWon = S.online === 'host' ? winner === p1 : winner === p2;
                 endGame(winner === p1 ? 'YOU WIN!' : 'YOU LOSE!', winner === p1 ? 'host' : 'guest');
                 return;
             }
@@ -1457,6 +1531,14 @@ function createExplosion(x, y) {
 
 const p1 = new Fighter(STAGE.x + 300, STAGE.y - 100, '#06b6d4', 'Player 1');
 const p2 = new AIBot(STAGE.x + 1200, STAGE.y - 100, '#f43f5e', 'AI Bot');
+/** every possible fighter: p1 = this browser's player (or the host), p2 = the bot / first guest, p3..p8 = more guests in custom matches */
+export const fighters = [p1, p2];
+for (let i = 2; i < 8; i++) { const f = new Fighter(STAGE.x + 300 * i, STAGE.y - 100, '#9ca3af', 'Player ' + (i + 1)); f.active = false; fighters.push(f); }
+fighters.forEach((f, i) => { f.slot = i; });
+const isAlive = (f) => f.active && !f.out;
+/** who this fighter can hurt: everyone still in the match, except teammates in team matches */
+const foesOf = (f) => fighters.filter(o => o !== f && isAlive(o) && !(S.match && S.match.teams && f.team && o.team === f.team));
+const nearestOf = (f, list) => list.reduce((b, o) => (!b || Math.hypot(o.x - f.x, o.y - f.y) < Math.hypot(b.x - f.x, b.y - f.y)) ? o : b, null);
 
 // ============================================================================
 //  Combat resolution
@@ -1562,24 +1644,25 @@ function explodeOrb(o) {
     createParticles(o.x, o.y, o.color, 18 + Math.floor(24 * o.charge));
     createParticles(o.x, o.y, '#ffffff', 10);
 
-    const t = o.owner === p1 ? p2 : p1;
-    if (t.invincibleTimer > 0 || t.stocks <= 0) return;
-    const cx = Math.max(t.x - t.width / 2, Math.min(o.x, t.x + t.width / 2));
-    const cy = Math.max(t.y - t.height / 2, Math.min(o.y, t.y + t.height / 2));
-    if (Math.hypot(o.x - cx, o.y - cy) > R) return;
+    for (const t of foesOf(o.owner)) {
+        if (t.invincibleTimer > 0 || t.stocks <= 0) continue;
+        const cx = Math.max(t.x - t.width / 2, Math.min(o.x, t.x + t.width / 2));
+        const cy = Math.max(t.y - t.height / 2, Math.min(o.y, t.y + t.height / 2));
+        if (Math.hypot(o.x - cx, o.y - cy) > R) continue;
 
-    const res = interaction('CORE', t);
-    if (res === 'hit') {
-        launch(o.owner, t, {
-            damage: dmg, bkb: (10 + 8 * o.charge) / 2, kbg: 1.1 / 2,      // half the knockback
-            angle: Math.atan2(t.y - o.y - 25, (t.x - o.x) || o.vx),
-        });
-    } else if (res === 'shield') {
-        audio.playShield();
-        t.shieldHealth = Math.max(0, t.shieldHealth - 10);
-        fx('block', t.x, t.y);
-    } else {
-        fx('counter', t.x, t.y);
+        const res = interaction('CORE', t);
+        if (res === 'hit') {
+            launch(o.owner, t, {
+                damage: dmg, bkb: (10 + 8 * o.charge) / 2, kbg: 1.1 / 2,      // half the knockback
+                angle: Math.atan2(t.y - o.y - 25, (t.x - o.x) || o.vx),
+            });
+        } else if (res === 'shield') {
+            audio.playShield();
+            t.shieldHealth = Math.max(0, t.shieldHealth - 10);
+            fx('block', t.x, t.y);
+        } else {
+            fx('counter', t.x, t.y);
+        }
     }
 }
 
@@ -1599,8 +1682,9 @@ function updateOrbs() {
             continue;
         }
 
-        const t = o.owner === p1 ? p2 : p1;
-        if (t.invincibleTimer <= 0 && t.stocks > 0) {
+        let hitOrb = false;
+        for (const t of foesOf(o.owner)) {
+            if (t.invincibleTimer > 0 || t.stocks <= 0) continue;
             const cx = Math.max(t.x - t.width / 2, Math.min(o.x, t.x + t.width / 2));
             const cy = Math.max(t.y - t.height / 2, Math.min(o.y, t.y + t.height / 2));
             if (Math.hypot(o.x - cx, o.y - cy) < o.r) {
@@ -1616,9 +1700,11 @@ function updateOrbs() {
                     createParticles(o.x, o.y, '#f472b6', 10);
                     fx('counter', o.x, o.y);
                 }
-                continue;
+                hitOrb = true;
+                break;
             }
         }
+        if (hitOrb) continue;
 
         if (o.life <= 0) { orbs.splice(i, 1); explodeOrb(o); }
     }
@@ -1626,39 +1712,39 @@ function updateOrbs() {
 
 function checkCombatCollisions(attacker, defender) {
     const isMutualGrab = (
-        (p1.isGrabDashing && p2.isGrabDashing) ||
-        (p1.isGrabDashing && p2.grabHolding !== null) ||
-        (p2.isGrabDashing && p1.grabHolding !== null)
+        (attacker.isGrabDashing && defender.isGrabDashing) ||
+        (attacker.isGrabDashing && defender.grabHolding !== null) ||
+        (defender.isGrabDashing && attacker.grabHolding !== null)
     );
 
     if (isMutualGrab) {
         const colliding = (
-            p1.x - p1.width/2 < p2.x + p2.width/2 &&
-            p1.x + p1.width/2 > p2.x - p2.width/2 &&
-            p1.y - p1.height/2 < p2.y + p2.height/2 &&
-            p1.y + p1.height/2 > p2.y - p2.height/2
+            attacker.x - attacker.width/2 < defender.x + defender.width/2 &&
+            attacker.x + attacker.width/2 > defender.x - defender.width/2 &&
+            attacker.y - attacker.height/2 < defender.y + defender.height/2 &&
+            attacker.y + attacker.height/2 > defender.y - defender.height/2
         );
 
-        if (colliding || Math.hypot(p1.x - p2.x, p1.y - p2.y) < 70) {
-            p1.vx = 0;
-            p1.vy = 0;
-            p2.vx = 0;
-            p2.vy = 0;
+        if (colliding || Math.hypot(attacker.x - defender.x, attacker.y - defender.y) < 70) {
+            attacker.vx = 0;
+            attacker.vy = 0;
+            defender.vx = 0;
+            defender.vy = 0;
 
-            p1.clashStunTimer = 120;
-            p2.clashStunTimer = 120;
+            attacker.clashStunTimer = 120;
+            defender.clashStunTimer = 120;
 
-            p1.isGrabDashing = false;
-            p2.isGrabDashing = false;
-            p1.grabHolding = null;
-            p2.grabHolding = null;
-            p1.grabbedBy = null;
-            p2.grabbedBy = null;
-            p1.isRolling = false;
-            p2.isRolling = false;
+            attacker.isGrabDashing = false;
+            defender.isGrabDashing = false;
+            attacker.grabHolding = null;
+            defender.grabHolding = null;
+            attacker.grabbedBy = null;
+            defender.grabbedBy = null;
+            attacker.isRolling = false;
+            defender.isRolling = false;
 
-            const clashX = (p1.x + p2.x) / 2;
-            const clashY = (p1.y + p2.y) / 2;
+            const clashX = (attacker.x + defender.x) / 2;
+            const clashY = (attacker.y + defender.y) / 2;
 
             shockwaves.push({
                 x: clashX,
@@ -1780,23 +1866,46 @@ function checkCombatCollisions(attacker, defender) {
 }
 
 let fBadge = null;
+let rosterKey = '';
+function renderRoster() {
+    let el = document.getElementById('rosterHud');
+    if (!el) {
+        el = document.createElement('div'); el.id = 'rosterHud';
+        el.style.cssText = 'position:fixed;right:12px;top:64px;z-index:12;display:flex;flex-direction:column;gap:4px;pointer-events:none;font:700 12px system-ui,sans-serif;color:#e2e8f0';
+        document.body.appendChild(el);
+    }
+    const lbl = document.getElementById('aiDiffLabel');
+    const aiPanel = lbl && lbl.closest('.glass-panel');
+    if (aiPanel) aiPanel.style.visibility = S.match ? 'hidden' : '';
+    if (!S.match || S.gameState === 'start') { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    const rows = fighters.filter(f => f.active).map(f => {
+        const pips = f.out ? 'OUT' : '●'.repeat(Math.max(0, f.stocks));
+        const nm = String(f.name).replace(/[<>&"]/g, '');
+        return `<div style="display:flex;gap:8px;align-items:center;background:rgba(8,12,24,.72);border-left:4px solid ${f.color};padding:4px 8px;border-radius:8px;min-width:190px;opacity:${f.out ? .45 : 1}${f.slot === (S.mySlot || 0) ? ';outline:1px solid #fff6' : ''}"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nm}</span><span style="color:${f.damage > 120 ? '#fb7185' : f.damage > 60 ? '#fbbf24' : '#fff'}">${Math.floor(f.damage)}%</span><span style="color:${f.color};letter-spacing:1px">${pips}</span></div>`;
+    }).join('');
+    if (rows !== rosterKey) { rosterKey = rows; el.innerHTML = rows; }
+}
+
 function renderHUD() {
-    document.getElementById('p1Damage').textContent = Math.floor(p1.damage);
+    const me = S.match ? (fighters[S.mySlot || 0] || p1) : p1;
+    renderRoster();
+    document.getElementById('p1Damage').textContent = Math.floor(me.damage);
     const p1DamageElem = document.getElementById('p1Damage');
-    if (p1.damage > 120) p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-rose-500 pulse-glow-red leading-none";
-    else if (p1.damage > 60) p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-amber-400 leading-none";
+    if (me.damage > 120) p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-rose-500 pulse-glow-red leading-none";
+    else if (me.damage > 60) p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-amber-400 leading-none";
     else p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-white leading-none";
 
     const p1StocksContainer = document.getElementById('p1Stocks');
     p1StocksContainer.innerHTML = '';
-    for (let i = 0; i < p1.stocks; i++) {
+    for (let i = 0; i < me.stocks; i++) {
         const pip = document.createElement('div');
         pip.className = 'w-3.5 h-3.5 rounded-full bg-cyan-400 border border-cyan-200 shadow-md shadow-cyan-500/50';
         p1StocksContainer.appendChild(pip);
     }
 
     const dashBadge = document.getElementById('p1DashBadge');
-    if (p1.canMouseDash) {
+    if (me.canMouseDash) {
         dashBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-500/50';
         dashBadge.textContent = 'DASH READY';
     } else {
@@ -1812,25 +1921,25 @@ function renderHUD() {
         dashBadge.insertAdjacentElement('afterend', fBadge);
     }
     if (fBadge) {
-        fBadge.style.color = p1.charging ? '#ddd6fe' : (!p1.grounded && p1.airSpecials >= AIR_F_MAX ? '#64748b' : '#c4b5fd');
+        fBadge.style.color = me.charging ? '#ddd6fe' : (!me.grounded && me.airSpecials >= AIR_F_MAX ? '#64748b' : '#c4b5fd');
         fBadge.style.whiteSpace = 'nowrap';
-        if (p1.charging) {
+        if (me.charging) {
             fBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-950 text-violet-300 border border-violet-500/60';
-            fBadge.textContent = `CORE ${Math.min(100, Math.round(p1.chargeFrames / CHARGE_MAX * 100))}%`;
-        } else if (!p1.grounded && p1.airSpecials >= AIR_F_MAX) {
+            fBadge.textContent = `CORE ${Math.min(100, Math.round(me.chargeFrames / CHARGE_MAX * 100))}%`;
+        } else if (!me.grounded && me.airSpecials >= AIR_F_MAX) {
             fBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900 text-slate-500 border border-slate-700';
             fBadge.textContent = 'AIR F: 0 LEFT';
         } else {
             fBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-950 text-violet-300 border border-violet-500/40';
-            fBadge.textContent = `AIR F: ${AIR_F_MAX - p1.airSpecials}/${AIR_F_MAX}`;
+            fBadge.textContent = `AIR F: ${AIR_F_MAX - me.airSpecials}/${AIR_F_MAX}`;
         }
     }
 
     const jumpContainer = document.getElementById('p1JumpDots');
     jumpContainer.innerHTML = '';
-    for (let i = 0; i < p1.maxJumps; i++) {
+    for (let i = 0; i < me.maxJumps; i++) {
         const dot = document.createElement('div');
-        dot.className = `w-2.5 h-2.5 rounded-full ${i < p1.jumpsLeft ? 'bg-cyan-400' : 'bg-slate-700'}`;
+        dot.className = `w-2.5 h-2.5 rounded-full ${i < me.jumpsLeft ? 'bg-cyan-400' : 'bg-slate-700'}`;
         jumpContainer.appendChild(dot);
     }
 
@@ -1858,30 +1967,63 @@ function triggerDramaticZoom(winnerCharacter) {
     dramaticZoom.progress = 0;
 }
 
-function startMatchSequence(mode) {
+const TEAM_COLORS = { red: '#ef4444', blue: '#3b82f6', yellow: '#facc15', green: '#22c55e' };
+const FFA_COLORS = ['#06b6d4', '#f43f5e', '#a3e635', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#f97316'];
+/** cfg (custom match): { players: [{slot, name, team}], teams: bool, startDamage, stocks, mySlot } */
+function startMatchSequence(mode, cfg) {
     S.gameMode = mode;
+    if (mode === 'lobby' && cfg) {
+        S.match = { teams: !!cfg.teams, startDamage: cfg.startDamage || 0, stocks: cfg.stocks || 3 };
+        S.mySlot = cfg.mySlot || 0;
+        S.matchCfg = cfg;
+        setArena('lobby');
+    } else {
+        S.match = null; S.mySlot = 0; S.matchCfg = null;
+        if (S.arena !== 'normal') setArena('normal');
+        for (let i = 2; i < fighters.length; i++) fighters[i].active = false;
+        p1.active = p2.active = true; p1.team = p2.team = null; p1.out = p2.out = false;
+    }
     document.getElementById('startScreen').classList.add('hidden');
     document.getElementById('gameOverModal').classList.add('hidden');
     dramaticZoom.active = false;
     orbs.length = 0;
 
+    if (S.match) {
+        const n = cfg.players.length, span = STAGE.width * 0.7;
+        fighters.forEach((f) => { f.active = false; f.out = false; f.team = null; });
+        cfg.players.forEach((pl, i) => {
+            // the local player is always drawn as p1 (slot 0 locally): swap slot 0 and my slot
+            const f = fighters[pl.slot];
+            f.active = true; f.name = pl.name; f.team = S.match.teams ? pl.team : null; f.isAI = false;
+            f.color = S.match.teams && pl.team ? TEAM_COLORS[pl.team] : FFA_COLORS[pl.slot % 8];
+            f.superColor = null;
+            f.startX = STAGE.x + STAGE.width * 0.15 + (n > 1 ? span * i / (n - 1) : span / 2);
+            f.startY = STAGE.y - 120;
+            f.reset(true); f.shieldHold = 0; f.remoteAim = null;
+        });
+    } else {
     p1.reset(true);
     p2.reset(true);
     p2.shieldHold = 0;
     p2.isAI = !S.online;                                   // online: p2 is a person
+    }
     p2.remoteAim = null;
     S.winnerRole = null;
-    remote.held = { left: false, right: false, shield: false };
+    remote.helds = {};
     resetSnapshotState();
     for (const [, g] of guestOrbs) { const i = orbs.indexOf(g); if (i >= 0) orbs.splice(i, 1); }
     guestOrbs.clear();
-    for (const f of [p1, p2]) { f._tx = undefined; f._ty = undefined; }
+    for (const f of fighters) { f._tx = undefined; f._ty = undefined; }
 
     const modeLabel = document.getElementById('modeDisplayLabel');
     const aiDiffLabel = document.getElementById('aiDiffLabel');
     const aiDescText = document.getElementById('aiDescText');
 
-    if (S.gameMode === 'easy') {
+    if (S.gameMode === 'lobby') {
+        modeLabel.textContent = S.match.teams ? 'CUSTOM MATCH • TEAMS' : 'CUSTOM MATCH • FREE FOR ALL';
+        document.getElementById('trainingControlPanel').classList.add('hidden');
+        document.getElementById('openTrainingPanelBtn').classList.add('hidden');
+    } else if (S.gameMode === 'easy') {
         modeLabel.textContent = "MODE: EASY";
         aiDiffLabel.textContent = "Easy Bot";
         aiDescText.textContent = "Slower movement, passive attacks & defensive shield";
@@ -1947,7 +2089,23 @@ function endGame(winnerText, winnerRole = null) {
 //  Fixed-timestep simulation (60 Hz)
 // ---------------------------------------------------------------------------
 
-/** walking / shielding for one fighter from a held-input state ({left,right,shield}) */
+
+const TEAM_NAMES = { red: 'RED', blue: 'BLUE', yellow: 'YELLOW', green: 'GREEN' };
+/** custom match: the match ends when only one team (or one fighter, in a free-for-all) is still standing */
+function checkMatchEnd() {
+    if (!S.match || S.gameState !== 'playing') return;
+    const live = fighters.filter(isAlive);
+    const keyOf = (f) => S.match.teams && f.team ? 't:' + f.team : 'p:' + f.slot;
+    if (new Set(live.map(keyOf)).size > 1) return;
+    S.winnerSlots = live.map(f => f.slot);
+    const w = live[0];
+    S.winnerLabel = !w ? 'NOBODY' : (S.match.teams && w.team ? `${TEAM_NAMES[w.team]} TEAM` : String(w.name).toUpperCase());
+    S.iWon = S.winnerSlots.includes(S.mySlot || 0);
+    triggerDramaticZoom(w || p1);
+    endGame(S.iWon ? 'YOU WIN!' : `${S.winnerLabel} WINS!`, 'lobby');
+}
+
+/** walking / shielding for one fighter from a held-input state ({left,right,shield,drop}) */
 function drive(f, h) {
     const free = f.hitstun === 0 && f.dizzyTimer === 0 && f.clashStunTimer === 0 && !f.grabHolding &&
         !f.isRolling && f.freezeTimer === 0;
@@ -1959,6 +2117,7 @@ function drive(f, h) {
             if (h.right) { if (f.isHanging) f.isHanging = false; f.vx = spd; f.facing = 1; }
         }
         f.isShielding = !!h.shield && f.canShield();
+        if (h.drop) f.dropT = 12;
     } else {
         f.isShielding = false;
     }
@@ -1970,15 +2129,23 @@ function drive(f, h) {
 //  simulation: it sends inputs and mirrors the host's snapshots, with itself as p1.
 // ============================================================================
 let netTick = 0;
-export const remote = { held: { left: false, right: false, shield: false } };
+const NOHELD = { left: false, right: false, shield: false, drop: false };
+export const remote = { helds: {} };              // slot -> held inputs of each guest
 
 /** an input event from the guest, applied to their fighter (host only) */
-export function applyRemote(ev) {
+export function removeFighter(slot) {
+    const f = fighters[slot];
+    if (!f || !f.active || !S.match) return;
+    f.out = true; f.stocks = 0; f.vx = f.vy = 0;
+    checkMatchEnd();
+}
+export function applyRemote(ev, slot = 1) {
     if (S.online !== 'host') return;
-    if (ev.t === 'held') { remote.held = { left: !!ev.left, right: !!ev.right, shield: !!ev.shield }; }
-    if (ev.wx !== undefined) p2.remoteAim = { x: ev.wx, y: ev.wy };
-    if (ev.t !== 'act' || S.gameState !== 'playing') return;
-    const f = p2;
+    const f = fighters[slot];
+    if (!f || !f.active) return;
+    if (ev.t === 'held') { remote.helds[slot] = { left: !!ev.left, right: !!ev.right, shield: !!ev.shield, drop: !!ev.drop }; }
+    if (ev.wx !== undefined) f.remoteAim = { x: ev.wx, y: ev.wy };
+    if (ev.t !== 'act' || S.gameState !== 'playing' || f.out) return;
     switch (ev.a) {
         case 'jump': f.jump(); break;
         case 'attack': f.attack(ev.dir); break;
@@ -1995,8 +2162,8 @@ const FKEYS = Object.keys(new Fighter(0, 0, '#000', 'k')).filter(k => !['color',
 const REFS = ['grabHolding', 'grabbedBy', 'grabVictim', 'suplexTarget'];
 const SWING_NAMES = Object.keys(SWING);
 const r2 = (v) => typeof v === 'number' ? Math.round(v * 100) / 100 : v;
-const idxOf = (f) => f === p1 ? 0 : f === p2 ? 1 : -1;
-let lastSent = [{}, {}];
+const idxOf = (f) => fighters.indexOf(f);
+let lastSent = Array.from({ length: 8 }, () => ({}));
 let fullEvery = 0;
 
 function packFighter(f) {
@@ -2017,7 +2184,8 @@ function packFighter(f) {
 /** a compact (delta-coded) description of the whole match for the guest */
 export function snapshot() {
     const full = (fullEvery++ % 60) === 0;
-    const fs = [p1, p2].map((f, i) => {
+    const fs = (S.match ? fighters : [p1, p2]).map((f, i) => {
+        if (!f.active && S.match) return null;
         const cur = packFighter(f), out = {};
         for (const k in cur) {
             const j = JSON.stringify(cur[k]);
@@ -2027,17 +2195,19 @@ export function snapshot() {
     });
     const ev = outbox.splice(0, outbox.length);
     return {
-        f: fs, gs: S.gameState, win: S.winnerRole || null, sh: Math.round(S.screenShake * 10) / 10,
+        f: fs, m: S.match ? 1 : 0, gs: S.gameState, win: S.winnerRole || null,
+        ws: S.winnerSlots || null, wl: S.winnerLabel || null, sh: Math.round(S.screenShake * 10) / 10,
         o: orbs.map(o => ({ id: o.id, x: r2(o.x), y: r2(o.y), vx: r2(o.vx), vy: r2(o.vy), r: r2(o.r), c: r2(o.charge), own: idxOf(o.owner) })),
         ev,
     };
 }
-export function resetSnapshotState() { lastSent = [{}, {}]; fullEvery = 0; outbox.length = 0; }
+export function resetSnapshotState() { lastSent = Array.from({ length: 8 }, () => ({})); fullEvery = 0; outbox.length = 0; }
 
 const guestOrbs = new Map();
-const guestFlip = (i) => i < 0 ? -1 : 1 - i;             // host's p1 is the guest's p2 and vice versa
+const guestFlip = (i) => i < 0 ? -1 : (S.match ? i : 1 - i);   // 1v1: host's p1 is the guest's p2 and vice versa; custom matches use absolute slots
 function guestSmooth() {
-    for (const f of [p1, p2]) {
+    for (const f of (S.match ? fighters : [p1, p2])) {
+        if (!f.active) continue;
         f.px = f.x; f.py = f.y;
         if (f._tx === undefined) continue;
         const d = Math.hypot(f._tx - f.x, f._ty - f.y);
@@ -2047,16 +2217,17 @@ function guestSmooth() {
     for (const o of orbs) { o.x += o.vx * 0.5; o.y += o.vy * 0.5; }
 }
 export function applySnapshot(s) {
-    const mine = [p2, p1];                                // snapshot index -> local fighter
+    const mine = s.m ? fighters : [p2, p1];               // snapshot index -> local fighter
     s.f.forEach((d, i) => {
         const f = mine[i];
+        if (!d || !f) return;
         for (const k in d) {
             const v = d[k];
             if (k === 'x') { if (f._tx === undefined) { f.x = v; } f._tx = v; }
             else if (k === 'y') { if (f._ty === undefined) { f.y = v; } f._ty = v; }
             else if (k === 'px' || k === 'py') continue;
             else if (k === 'swing') f.swing = v ? SWING[v] : null;
-            else if (REFS.includes(k)) { const g = guestFlip(v); f[k] = g < 0 ? null : (g === 0 ? p1 : p2); }
+            else if (REFS.includes(k)) { const g = guestFlip(v); f[k] = g < 0 ? null : fighters[g]; }
             else if (k === 'facing') f.facing = v;
             else f[k] = v;
         }
@@ -2066,8 +2237,9 @@ export function applySnapshot(s) {
     const seen = new Set();
     for (const o of s.o) {
         seen.add(o.id);
-        const own = guestFlip(o.own) === 0 ? p1 : p2;
-        const color = o.c >= 1 ? (own === p1 ? '#a855f7' : '#fb923c') : own.color;
+        const og = guestFlip(o.own);
+        const own = og < 0 ? p1 : fighters[og];
+        const color = o.c >= 1 ? (S.match ? '#a855f7' : (own === p1 ? '#a855f7' : '#fb923c')) : own.color;
         let g = guestOrbs.get(o.id);
         if (!g) { g = { id: o.id }; guestOrbs.set(o.id, g); orbs.push(g); }
         Object.assign(g, { x: o.x, y: o.y, vx: o.vx, vy: o.vy, r: o.r, charge: o.c, owner: own, color, life: 200 });
@@ -2076,7 +2248,12 @@ export function applySnapshot(s) {
     S.screenShake = Math.max(S.screenShake, s.sh || 0);
     // game state
     if (s.gs === 'gameover') {
-        if (S.gameState !== 'gameover') {
+        if (S.gameState !== 'gameover' && s.m) {
+            S.winnerSlots = s.ws || []; S.winnerLabel = s.wl || 'NOBODY';
+            S.iWon = S.winnerSlots.includes(S.mySlot);
+            triggerDramaticZoom(fighters[S.winnerSlots[0]] || fighters[S.mySlot] || p1);
+            endGame(S.iWon ? 'YOU WIN!' : `${S.winnerLabel} WINS!`, 'lobby');
+        } else if (S.gameState !== 'gameover') {
             const winner = s.win === 'host' ? p2 : p1;
             triggerDramaticZoom(winner);
             endGame(s.win === 'guest' ? 'YOU WIN!' : 'YOU LOSE!', s.win);
@@ -2092,7 +2269,8 @@ export function applySnapshot(s) {
 }
 
 export function step() {
-    for (const f of [p1, p2]) {
+    for (const f of fighters) {
+        if (!f.active) continue;
         f.px = f.x; f.py = f.y;
         f._teleported = false;
         if (f.throwFxT > 0) f.throwFxT--;
@@ -2100,10 +2278,20 @@ export function step() {
 
     if (S.online === 'guest') {
         guestSmooth();                                      // the host simulates; we only show what it sends
+    } else if (S.gameState === 'playing' && S.match) {      // custom match: up to 8 fighters, steered by their players
+        const live = fighters.filter(isAlive);
+        for (const f of live) {
+            drive(f, f === p1 ? { left: isDown('left'), right: isDown('right'), shield: isDown('shield'), drop: isDown('drop') } : (remote.helds[f.slot] || NOHELD));
+            f.update();
+        }
+        updateOrbs();
+        for (const a of fighters.filter(isAlive)) for (const b of fighters.filter(isAlive)) {
+            if (a !== b && !(S.match.teams && a.team && a.team === b.team)) checkCombatCollisions(a, b);
+        }
     } else if (S.gameState === 'playing') {
-        drive(p1, { left: isDown('left'), right: isDown('right'), shield: isDown('shield') });
+        drive(p1, { left: isDown('left'), right: isDown('right'), shield: isDown('shield'), drop: isDown('drop') });
         p1.update();
-        if (S.online === 'host') drive(p2, remote.held);   // the guest's fighter, steered by their inputs
+        if (S.online === 'host') drive(p2, remote.helds[1] || NOHELD);   // the guest's fighter, steered by their inputs
         else p2.updateAI(p1);
         p2.update();
 

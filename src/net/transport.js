@@ -1,8 +1,67 @@
 // A transport moves small JSON messages between the two players of a room.
 //   const t = await openTransport(code); t.onmessage = (msg) => ...; t.send(msg); t.close();
 import { getClient, supabaseConfigured } from './supa.js';
+import { MQTT_JS, MQTT_BROKERS } from './config.js';
 
-export const hasRealtime = () => supabaseConfigured();
+const forced = () => { try { return localStorage.getItem('luminary-transport'); } catch (e) { return null; } };
+/** true when messages can reach other computers (anything except the same-browser test transport) */
+export const hasRealtime = () => forced() !== 'local';
+
+// ---- public MQTT broker over WebSocket: works between computers with no account or server of our own
+let mqttClient = null, mqttLoading = null;
+const subs = new Map();                       // topic -> Set(transport)
+function loadMqtt() {
+    return new Promise((resolve, reject) => {
+        if (window.mqtt) return resolve();
+        const s = document.createElement('script');
+        s.src = MQTT_JS; s.onload = () => resolve(); s.onerror = () => reject(new Error('could not load the network library'));
+        document.head.appendChild(s);
+    });
+}
+function connectBroker(url) {
+    return new Promise((resolve, reject) => {
+        const c = window.mqtt.connect(url, { reconnectPeriod: 2000, connectTimeout: 6000, clean: true, clientId: 'lum_' + Math.random().toString(16).slice(2, 12) });
+        const timer = setTimeout(() => { try { c.end(true); } catch (e) { /* ignore */ } reject(new Error('broker timeout')); }, 7000);
+        c.once('connect', () => { clearTimeout(timer); resolve(c); });
+        c.once('error', (e) => { clearTimeout(timer); try { c.end(true); } catch (x) { /* ignore */ } reject(e); });
+    });
+}
+async function getMqtt() {
+    if (mqttClient) return mqttClient;
+    if (!mqttLoading) mqttLoading = (async () => {
+        await loadMqtt();
+        let last = null;
+        for (const url of MQTT_BROKERS) {
+            try {
+                const c = await connectBroker(url);
+                c.on('message', (topic, buf) => {
+                    let m; try { m = JSON.parse(buf.toString()); } catch (e) { return; }
+                    for (const t of subs.get(topic) || []) if (m.s !== t.id) t.onmessage && t.onmessage(m.d);
+                });
+                c.on('connect', () => { for (const topic of subs.keys()) c.subscribe(topic, { qos: 0 }); });   // re-subscribe after reconnects
+                mqttClient = c; return c;
+            } catch (e) { last = e; }
+        }
+        mqttLoading = null;
+        throw new Error('could not reach an online server (' + (last && last.message || 'offline') + ')');
+    })();
+    return mqttLoading;
+}
+
+class MqttTransport {
+    constructor(code) { this.topic = 'luminary/v1/' + code; this.id = Math.random().toString(36).slice(2, 10); this.onmessage = null; this.local = false; }
+    async open() {
+        const c = await getMqtt();
+        if (!subs.has(this.topic)) subs.set(this.topic, new Set());
+        subs.get(this.topic).add(this);
+        await new Promise((resolve, reject) => c.subscribe(this.topic, { qos: 0 }, (err) => err ? reject(err) : resolve()));
+    }
+    send(msg) { try { mqttClient.publish(this.topic, JSON.stringify({ s: this.id, d: msg }), { qos: 0 }); } catch (e) { /* offline */ } }
+    close() {
+        const set = subs.get(this.topic);
+        if (set) { set.delete(this); if (!set.size) { subs.delete(this.topic); try { mqttClient.unsubscribe(this.topic); } catch (e) { /* ignore */ } } }
+    }
+}
 
 class LocalTransport {
     constructor(code) { this.ch = new BroadcastChannel('luminary-room-' + code); this.onmessage = null; this.local = true; }
@@ -30,7 +89,8 @@ class SupabaseTransport {
 }
 
 export async function openTransport(code) {
-    const t = hasRealtime() ? new SupabaseTransport(code) : new LocalTransport(code);
+    const mode = forced();
+    const t = mode === 'local' ? new LocalTransport(code) : (mode !== 'mqtt' && supabaseConfigured()) ? new SupabaseTransport(code) : new MqttTransport(code);
     await t.open();
     return t;
 }

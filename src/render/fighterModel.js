@@ -36,6 +36,7 @@ export class FighterModel {
      * @param {object} opts      { variant: 'hero' | 'rival', fx: Effects }
      */
     constructor(scene, fighter, { variant = 'hero', fx } = {}) {
+        this.builtColor = fighter.color;
         this.f = fighter;
         this.fx = fx;
         this.variant = variant;
@@ -555,7 +556,7 @@ export class FighterModel {
         this.root.position.copy(pos);
 
         // loser of a finished match is gone (blown out of the arena)
-        const hidden = S.gameState === 'gameover' && f.stocks <= 0;
+        const hidden = (S.gameState === 'gameover' && f.stocks <= 0) || f.active === false || f.out === true;
         this.root.visible = !hidden;
         if (hidden) { this.#hideExtras(); return; }
 

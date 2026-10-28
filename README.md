@@ -14,10 +14,9 @@ Shield counters all but Grab · Grab loses to every active move (except Headbutt
 ## Layout
 `src/core.js` simulation · `src/main.js` input/loop · `src/render/*` Three.js view, fighter rig, effects.
 
-## Online 1v1 (work in progress)
+## Online play
+Works between computers with **no setup**: matches travel over a public MQTT relay (`src/net/config.js`), so share a 4-letter code and play. (For private/own infrastructure, fill in the Supabase values in the same file, which take over automatically.)
+- **Quick match / 1v1 rooms**, **Custom match** (up to 8 players, FFA or red/blue/yellow/green teams, starting damage, stocks, 2.5x arena with Battlefield platforms), **Party** (leader + 4, launches a 1v1 or custom match for everyone), **Borgs** (friends), accounts and guests, chat.
+- The host's browser runs the match; guests send inputs and see snapshots. Test mode in one browser: `localStorage.setItem('luminary-transport','local')`.
+- Accounts are stored per-browser until a Supabase project is configured (see `supabase/luminary.sql`); friends/presence/invites work across computers through the relay.
 
-`Play Online` on the start screen creates or joins a room by 4-letter code.
-
-- The **host** runs the whole simulation (`src/core.js`); the **guest** sends inputs and mirrors snapshots (see "Online play" in core.js).
-- `src/net/transport.js` moves the messages. With no server configured (`src/net/config.js`) it uses a same-browser `BroadcastChannel`, which is enough to test with two tabs.
-- For real internet play, put a Supabase project URL and publishable key in `src/net/config.js`. Only Realtime broadcast channels are used, nothing is stored.

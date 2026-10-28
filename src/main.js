@@ -7,7 +7,10 @@ import {
 import { held, actionsFor } from './controls.js';
 import { UI } from './ui.js';
 import { View } from './render/view.js';
-import { Online, leaveRoom, sendAct, sendHeld, requestRematch } from './net/online.js';
+import { Online, leaveRoom, sendAct, sendHeld, requestRematch, joinRoom } from './net/online.js';
+import { CustomUI } from './net/customUI.js';
+import { PartyUI } from './net/partyUI.js';
+import { Party, joinParty } from './net/party.js';
 import { LobbyUI } from './net/lobbyUI.js';
 import { Queue, joinQueue } from './net/queue.js';
 import { ACC, initAccount, setProfileListener, recordResult } from './account.js';
@@ -23,14 +26,18 @@ const lobby = new LobbyUI({ root: $('luminary-root'), openBtn: $('onlineBtnStart
 const toasts = new Toasts($('luminary-root'));
 const chat = new ChatUI({ root: $('luminary-root') });
 const borgsUI = new BorgsUI({ root: $('luminary-root'), toasts, onInviteSent: () => lobby.open('Invite sent. Waiting for your friend to join…') });
+const custom = new CustomUI({ root: $('luminary-root'), openBtn: $('customBtnStart'), openBorgs: () => borgsUI.open('borgs') });
+const partyUI = new PartyUI({ root: $('luminary-root'), openBtn: $('partyBtnStart'), toasts });
+Inbox.joinParty = (code) => { partyUI.open(); return joinParty(code); };
+Party.onGo = (m) => { if (Online.role) return; toasts.show({ text: m.kind === 'lobby' ? 'Your party is starting a custom match' : 'Your party is starting a 1v1', ttl: 4000 }); joinRoom(m.code); };
 const accountUI = new AccountUI({ root: $('luminary-root'), startScreen: $('startScreen'), openBorgs: () => borgsUI.open('borgs'), onChange: () => ui.refreshLabels() });
 
 // ---- accounts / inbox
 Inbox.onRequest = (from) => toasts.show({ text: `${from} sent you a borg request`, ttl: 12000, actions: [
     { label: 'Accept', fn: () => acceptRequest({ id: (getReq(from) || {}).id, from }) }, { label: 'Later', ghost: true, fn: () => borgsUI.open('reqs') }] });
 function getReq(from) { return (JSON.parse(localStorage.getItem('luminary-breq-' + (ACC.status === 'user' ? ACC.userId : 'guest')) || '{}').incoming || []).find(r => r.from === from); }
-Inbox.onInvite = (inv) => toasts.show({ text: `${inv.from} invited you to a ${inv.kind === 'lobby' ? 'custom match' : '1v1'}`, ttl: 20000, actions: [
-    { label: 'Join', fn: () => { lobby.open('Joining…'); acceptInvite(inv); } }, { label: 'Decline', ghost: true }] });
+Inbox.onInvite = (inv) => toasts.show({ text: `${inv.from} invited you to ${inv.kind === 'party' ? 'a party' : inv.kind === 'lobby' ? 'a custom match' : 'a 1v1'}`, ttl: 20000, actions: [
+    { label: 'Join', fn: () => { if (inv.kind === '1v1') lobby.open('Joining…'); else if (inv.kind === 'lobby') custom.open(); acceptInvite(inv); } }, { label: 'Decline', ghost: true }] });
 setProfileListener(() => { startInbox(); ui.refreshLabels(); });
 initAccount().then(() => { if (ACC.status === 'signedOut') accountUI.open('login'); startInbox(); });
 window.addEventListener('pagehide', () => { announceSplinter(); });
@@ -177,7 +184,7 @@ let last = performance.now();
 let resultRecorded = false;
 function onlineGameOver() {
     if (S.online && S.gameState === 'gameover' && S.winnerRole) {
-        if (!resultRecorded) { resultRecorded = true; recordResult(S.winnerRole === S.online); $('requeueBtn').classList.toggle('hidden', !Online.viaQueue); }
+        if (!resultRecorded) { resultRecorded = true; recordResult(S.winnerRole === 'lobby' ? !!S.iWon : S.winnerRole === S.online); $('requeueBtn').classList.toggle('hidden', !Online.viaQueue || Online.mode === 'lobby'); }
     } else if (S.gameState !== 'gameover') resultRecorded = false;
 }
 $('requeueBtn').addEventListener('click', () => { $('gameOverModal').classList.add('hidden'); const wasQueue = true; leaveRoom(); backToMenu(); lobby.open(); joinQueue(); });

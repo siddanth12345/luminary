@@ -8,8 +8,9 @@
 // 2D plane z = 0; depth is purely visual.
 import { WORLD } from '../core.js';
 
-export const CX = WORLD.width / 2;   // 1900
-export const CY = WORLD.height / 2;  // 1050
+export let CX = WORLD.width / 2;   // 1900 (live: the lobby arena is bigger)
+export let CY = WORLD.height / 2;  // 1050
+export function syncSpace() { CX = WORLD.width / 2; CY = WORLD.height / 2; }
 
 export const wx = (x) => x - CX;
 export const wy = (y) => CY - y;

@@ -3,7 +3,7 @@
 // animation-driven effects (slash crescents, punch rings, dash ghosts) are spawned by
 // the fighter models through the small API at the bottom of this class.
 import * as THREE from 'three';
-import { S, p1, p2, particles, shockwaves, koBeams, fxEvents, mouse, orbs, CHARGE_MAX } from '../core.js';
+import { S, p1, p2, fighters, particles, shockwaves, koBeams, fxEvents, mouse, orbs, CHARGE_MAX } from '../core.js';
 import { wx, wy, clamp01, lerp, smooth, D2R } from './space.js';
 
 const ADD = THREE.AdditiveBlending;
@@ -154,7 +154,7 @@ export class Effects {
         this.hbPool = [];
         const hbGeo = new THREE.BoxGeometry(1, 1, 1);
         const hbEdges = new THREE.EdgesGeometry(hbGeo);
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < 8; i++) {
             const m = new THREE.Mesh(hbGeo, new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.16, depthWrite: false, blending: ADD, toneMapped: false }));
             m.add(new THREE.LineSegments(hbEdges, new THREE.LineBasicMaterial({ color: 0xff5a5a, transparent: true, opacity: 0.75, toneMapped: false })));
             m.visible = false; m.renderOrder = 5; scene.add(m); this.hbPool.push(m);
@@ -172,8 +172,8 @@ export class Effects {
             g.visible = false; g.renderOrder = 6; this.scene.add(g);
             return g;
         };
-        this.orbPool = []; for (let i = 0; i < 8; i++) this.orbPool.push(mkOrb());
-        this.chargePool = [mkOrb(), mkOrb()];
+        this.orbPool = []; for (let i = 0; i < 24; i++) this.orbPool.push(mkOrb());
+        this.chargePool = Array.from({ length: 8 }, () => mkOrb());
         this.chargeT = 0;
 
         // ---- aim line (player -> cursor), dashed like the original
@@ -442,7 +442,7 @@ export class Effects {
 
         // ---- ghosts
         n = 0;
-        for (const f of [p1, p2]) {
+        for (const f of fighters) {
             for (const g of f.ghosts) {
                 if (n >= this.MAXG) break;
                 V.set(wx(g.x), wy(g.y), -2); Sc.set(1, 1, 0.55);
@@ -483,8 +483,8 @@ export class Effects {
         }
 
         // ---- hitboxes
-        [p1, p2].forEach((f, i) => {
-            const m = this.hbPool[i], hb = f.activeHitbox;
+        fighters.forEach((f, i) => {
+            const m = this.hbPool[i], hb = f.activeHitbox; if (!m) return;
             if (!hb) { m.visible = false; return; }
             m.visible = true;
             m.position.set(wx(hb.x), wy(hb.y), 0); m.scale.set(hb.w, hb.h, 44);
@@ -502,19 +502,19 @@ export class Effects {
             if (Math.random() < 0.8) this.sparks(g.position.clone(), o.color, 1, 70, 0.28);
         }
         // ---- the orb a fighter is charging (grows with the charge)
-        [p1, p2].forEach((f, i) => {
-            const g = this.chargePool[i];
-            if (!f.charging || S.gameState !== 'playing') { g.visible = false; return; }
+        fighters.forEach((f, i) => {
+            const g = this.chargePool[i]; if (!g) return;
+            if (!f.active || f.out || !f.charging || S.gameState !== 'playing') { g.visible = false; return; }
             const c = Math.min(1, f.chargeFrames / CHARGE_MAX);
             const r = (5 + 15 * c) * (1 + Math.sin(this.chargeT * 30) * 0.08);
             g.visible = true;
             g.position.set(wx(f.x + f.facing * (30 + 8 * c)), wy(f.y - 2), 8);
-            const col = c >= 1 ? (f === p1 ? '#a855f7' : '#fb923c') : f.color;
+            const col = c >= 1 ? (S.match ? '#a855f7' : f === p1 ? '#a855f7' : '#fb923c') : f.color;
             this.#paintOrb(g, r, col, 0.8 + 0.2 * c);
             if (Math.random() < 0.5 + c * 0.5) {          // energy streaming in
                 const a = Math.random() * Math.PI * 2, d = 50 + 60 * c;
                 const from = g.position.clone().add(new THREE.Vector3(Math.cos(a) * d, Math.sin(a) * d, 0));
-                this.spray(from, a + Math.PI, c >= 1 ? (f === p1 ? '#a855f7' : '#fb923c') : f.color, 1, d * 5, 0.1, 0.18);
+                this.spray(from, a + Math.PI, c >= 1 ? (S.match ? '#a855f7' : f === p1 ? '#a855f7' : '#fb923c') : f.color, 1, d * 5, 0.1, 0.18);
             }
             if (c >= 1 && Math.floor(this.chargeT * 12) % 6 === 0) this.ring(g.position.clone(), r, r + 40, 0.2, '#ffffff', 'screen');
         });
@@ -524,7 +524,8 @@ export class Effects {
         this.aim.visible = show;
         if (show) {
             const a = this.aim.geometry.attributes.position;
-            a.setXYZ(0, wx(p1.x), wy(p1.y), 3); a.setXYZ(1, wx(mouse.worldX), wy(mouse.worldY), 3);
+            const me = fighters[S.mySlot || 0] || p1;
+            a.setXYZ(0, wx(me.x), wy(me.y), 3); a.setXYZ(1, wx(mouse.worldX), wy(mouse.worldY), 3);
             a.needsUpdate = true;
             this.aim.computeLineDistances();
         }

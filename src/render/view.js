@@ -6,8 +6,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { S, WORLD, STAGE, p1, p2, mouse, dramaticZoom, updateAimMatrix } from '../core.js';
-import { CX, CY, wx, wy, lerp, smooth, clamp01 } from './space.js';
+import { S, WORLD, STAGE, p1, p2, fighters, mouse, dramaticZoom, updateAimMatrix } from '../core.js';
+import { CX, CY, wx, wy, lerp, smooth, clamp01, syncSpace } from './space.js';
 import { buildStage } from './stage.js';
 import { FighterModel } from './fighterModel.js';
 import { Effects } from './effects.js';
@@ -57,12 +57,9 @@ export class View {
         this.stage = buildStage(scene);
         this.fx = new Effects(scene);
         this.fx.setStageTop(this.stage.topY);
-        this.models = [
-            new FighterModel(scene, p1, { variant: 'hero', fx: this.fx }),
-            new FighterModel(scene, p2, { variant: 'rival', fx: this.fx }),
-        ];
-        for (const m of this.models) m.setStageBounds(STAGE.x, STAGE.x + STAGE.width, this.stage.topY);
+        this.models = fighters.map((f, i) => this.makeModel(f, i));
         this.fx.models = this.models;
+        this.arenaVersion = S.arenaVersion || 0;
 
         // ---- post
         const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
@@ -80,6 +77,29 @@ export class View {
         this.clock = 0;
         this.resize();
         window.addEventListener('resize', () => this.resize());
+    }
+
+    makeModel(f, i) {
+        const m = new FighterModel(this.scene, f, { variant: i === 0 ? 'hero' : 'rival', fx: this.fx });
+        m.setStageBounds(STAGE.x, STAGE.x + STAGE.width, this.stage.topY);
+        return m;
+    }
+
+    /** the arena changed (1v1 <-> custom match) or a fighter changed colour (teams): rebuild what depends on it */
+    syncWorld() {
+        if ((S.arenaVersion || 0) !== this.arenaVersion) {
+            this.arenaVersion = S.arenaVersion || 0;
+            syncSpace();
+            this.scene.remove(this.stage.root);
+            this.stage = buildStage(this.scene);
+            this.fx.setStageTop(this.stage.topY);
+            this.models.forEach((m, i) => m.setStageBounds(STAGE.x, STAGE.x + STAGE.width, this.stage.topY));
+            this.camDist = 0;
+        }
+        fighters.forEach((f, i) => {
+            const m = this.models[i];
+            if (m.builtColor !== f.color) { m.dispose(); this.models[i] = this.makeModel(f, i); this.fx.models = this.models; }
+        });
     }
 
     resize() {
@@ -107,11 +127,14 @@ export class View {
     followGoal(out) {
         const d0 = this.fitDistance();
         const t = Math.tan(FOV * Math.PI / 360);
-        const ax = wx(p1.x), ay = wy(p1.y), bx = wx(p2.x), by = wy(p2.y);
-        const halfW = Math.abs(ax - bx) / 2 + 520;        // breathing room around the pair
-        const halfH = Math.abs(ay - by) / 2 + 380;
+        let live = fighters.filter(f => f.active && !f.out);
+        if (!live.length) live = [p1, p2];
+        const xs = live.map(f => wx(f.x)), ys = live.map(f => wy(f.y));
+        const ax = Math.min(...xs), bx = Math.max(...xs), ay = Math.min(...ys), by = Math.max(...ys);
+        const halfW = (bx - ax) / 2 + 520, halfH = (by - ay) / 2 + 380;   // breathing room around the group
         let dist = Math.max(halfH / t, halfW / (t * this.camera.aspect));
-        dist = Math.min(d0, Math.max(d0 / 2.7, dist));
+        const big = WORLD.width / 3800;
+        dist = Math.min(d0, Math.max(d0 / 2.7 / (big > 1 ? 1.6 : 1), dist));
         const lim = (v, m) => Math.max(-m, Math.min(m, v));
         out.set(lim((ax + bx) / 2, WORLD.width / 2), lim((ay + by) / 2, WORLD.height / 2), 0);
         return dist;
@@ -159,7 +182,8 @@ export class View {
 
     /** The aim matrix is measured from the player (the camera no longer sits on the map centre). */
     updateAimOrigin() {
-        const v = this.v2.set(wx(p1.x), wy(p1.y), 0).project(this.camera);
+        const me = fighters[S.mySlot || 0] || p1;
+        const v = this.v2.set(wx(me.x), wy(me.y), 0).project(this.camera);
         mouse.originX = (v.x * 0.5 + 0.5) * this.w;
         mouse.originY = (-v.y * 0.5 + 0.5) * this.h;
         updateAimMatrix();
@@ -167,6 +191,7 @@ export class View {
 
     update(dt, alpha) {
         this.clock += dt;
+        this.syncWorld();
         this.placeCamera(dt);
         this.updateAim();
         this.updateAimOrigin();

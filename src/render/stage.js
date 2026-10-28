@@ -32,6 +32,10 @@ export function buildStage(scene) {
     const root = new THREE.Group();
     scene.add(root);
     const anim = []; // per-frame callbacks (t, dt)
+    const K = STAGE.width / 3800;            // big arena: the backdrop scales with it
+    const decor = new THREE.Group();
+    decor.scale.setScalar(K);
+    root.add(decor);
 
     const W = STAGE.width;
     const D = STAGE_DEPTH;
@@ -154,7 +158,7 @@ export function buildStage(scene) {
     // luminary halo
     const halo = new THREE.Group();
     halo.position.set(0, 140, -1500);
-    root.add(halo);
+    decor.add(halo);
     const haloMat1 = glowMat('#22d3ee', 1.7);
     const haloMat2 = glowMat('#8b5cf6', 1.5);
     const r1 = new THREE.Mesh(new THREE.TorusGeometry(1150, 7, 8, 160), haloMat1);
@@ -180,7 +184,7 @@ export function buildStage(scene) {
         const m = new THREE.Mesh(new THREE.PlaneGeometry(s, s), new THREE.MeshBasicMaterial({
             map: nebTex, color, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
         }));
-        m.position.set(x, y, z); root.add(m);
+        m.position.set(x, y, z); decor.add(m);
     };
     nebula(0x2563eb, 0, 120, -2300, 5200, 0.55);
     nebula(0x7c3aed, -2200, 600, -2600, 3600, 0.5);
@@ -205,7 +209,7 @@ export function buildStage(scene) {
     sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
     sg.setAttribute('color', new THREE.BufferAttribute(sc, 3));
     const stars = new THREE.Points(sg, new THREE.PointsMaterial({ size: 9, sizeAttenuation: true, vertexColors: true, fog: false, transparent: true, opacity: 0.95 }));
-    root.add(stars);
+    decor.add(stars);
     anim.push((t) => { stars.position.x = Math.sin(t * 0.02) * 40; });
 
     // floating rocks
@@ -226,7 +230,7 @@ export function buildStage(scene) {
         const side = i % 2 ? 1 : -1;
         g.position.set(side * (900 + Math.random() * 2400), -700 + Math.random() * 1800, -350 - Math.random() * 1500);
         g.userData = { base: g.position.y, ph: Math.random() * 6.28, sp: 0.15 + Math.random() * 0.25, rs: (Math.random() - 0.5) * 0.3 };
-        root.add(g); rocks.push(g);
+        decor.add(g); rocks.push(g);
     }
     anim.push((t) => {
         for (const g of rocks) {
@@ -235,12 +239,24 @@ export function buildStage(scene) {
         }
     });
 
+    // ------------------------------------------------------------ soft platforms (Big Battlefield)
+    for (const p of STAGE.platforms || []) {
+        const py = wy(p.y), g = new THREE.Group();
+        const slab2 = new THREE.Mesh(new THREE.BoxGeometry(p.w, 26, D * 0.55), bodyMat);
+        slab2.position.y = -13; slab2.castShadow = true; slab2.receiveShadow = true;
+        const edge2 = new THREE.Mesh(new THREE.BoxGeometry(p.w, 5, D * 0.55 + 2), glowMat(STAGE.topColor, 2.4));
+        edge2.position.y = 1;
+        g.add(slab2, edge2);
+        g.position.set(wx(p.x + p.w / 2), py, 0);
+        root.add(g);
+    }
+
     // ------------------------------------------------------------ blast-zone frame (dashed)
     const bz = BLAST_ZONES;
     const dashGeo = new THREE.BoxGeometry(1, 1, 1);
     const dashMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xef4444).multiplyScalar(1.4), transparent: true, opacity: 0.42, toneMapped: false });
     const L = wx(bz.left), R = wx(bz.right), T = wy(bz.top), B = wy(bz.bottom);
-    const DASH = 44, GAP = 44, TH = 5;
+    const DASH = 44 * K, GAP = 44 * K, TH = 5 * K;
     const list = [];
     const edge = (x0, y0, x1, y1) => {
         const len = Math.hypot(x1 - x0, y1 - y0);
