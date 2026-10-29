@@ -43,12 +43,6 @@ const STEPS = [
         progress: (st) => `${st.got.size} / 4 (${[...st.got].join(', ') || 'none yet'})`,
     },
     {
-        title: 'Mouse dash',
-        text: () => `Press ${K('dash')} to dash toward your cursor. It hits whatever you touch.`,
-        init: () => ({}),
-        check: () => p1.isDashing,
-    },
-    {
         title: 'Dash-grab',
         text: () => `Press ${K('grab')} to dash-grab. Grab beats shield, but nearly every other move beats a grab.`,
         init: () => ({}),

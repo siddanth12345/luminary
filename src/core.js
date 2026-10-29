@@ -210,12 +210,12 @@ const SWING = {
 };
 
 // ----------------------------------------------------------------- counter matrix
-//  Move types: J, DASH, GRAB (also the Suplex dash), CORE, BLINK, SPIRAL, HEADBUTT  (+ the SHIELD state)
+//  Move types: J, GRAB (also the Suplex dash), CORE, BLINK, SPIRAL, HEADBUTT  (+ the SHIELD state)
 //   * SHIELD   counters everything except GRAB
 //   * GRAB     is countered by every other active move (except HEADBUTT, which grab beats) - and beats SHIELD
 //   * HEADBUTT counters everything except GRAB and SHIELD
 //   * J        counters everything except SHIELD
-//   * CORE     counters every F move and GRAB (not DASH, not J)
+//   * CORE     counters every F move and GRAB (not J)
 function counters(defType, atkType) {
     if (!defType) return false;
     if (atkType === 'GRAB') return defType !== 'SHIELD' && defType !== 'HEADBUTT' && defType !== 'GRAB';
@@ -264,12 +264,8 @@ class Fighter {
         this.isHanging = false;
         this.hangSide = 0;
 
-        this.canMouseDash = true;
         this.canGrab = true;
 
-        this.isDashing = false;
-        this.dashTimer = 0;
-        this.dashHitConnected = false;
 
         this.isShielding = false;
         this.shieldHealth = 100;
@@ -349,9 +345,7 @@ class Fighter {
         this.damage = (fullReset && S.match) ? S.match.startDamage : 0;    // custom match: choose the starting damage
         this.jumpsLeft = this.maxJumps;
         this.isHanging = false;
-        this.canMouseDash = true;
         this.canGrab = true;
-        this.isDashing = false;
         this.isGrabDashing = false;
         this.isRolling = false;
         this.rollTimer = 0;
@@ -400,7 +394,7 @@ class Fighter {
         this.spiralT = 0; this.suplexT = 0; this.suplexPending = false; this.diving = false;
         this.specialKind = null; this.specialDur = 0; this.specialT = 0;
         this.activeMove = null; this.actionLock = 0; this.freezeTimer = 0;
-        this.isDashing = false; this.isGrabDashing = false;
+        this.isGrabDashing = false;
     }
 
     update() {
@@ -563,14 +557,6 @@ class Fighter {
             this.y += this.vy;
             this.checkStageCollision(true);                  // ragdolled: bounce off the stage instead of sliding along it
             return;
-        }
-
-        if (this.isDashing) {
-            this.dashTimer--;
-            this.ghosts.push({ x: this.x, y: this.y, alpha: 0.7, color: '#22d3ee' });
-            if (this.dashTimer <= 0) {
-                this.isDashing = false;
-            }
         }
 
         for (let i = this.ghosts.length - 1; i >= 0; i--) {
@@ -945,7 +931,6 @@ class Fighter {
         this.actionLock = 0;
 
         this.jumpsLeft = this.maxJumps;
-        this.canMouseDash = true;
         this.canGrab = true;
         // (air F moves are NOT refilled here: only the ground does that)
 
@@ -1008,7 +993,6 @@ class Fighter {
                     if (bounce) this.vx *= 0.35;               // settled: no skating across the floor
                     this.grounded = true;
                     this.jumpsLeft = this.maxJumps;
-                    this.canMouseDash = true;
                     this.canGrab = true;
                     this.isHanging = false;
                     this.airSpecials = 0;                     // touching the ground recharges air F moves
@@ -1045,7 +1029,6 @@ class Fighter {
                     if (bounce) this.vx *= 0.35;
                     this.grounded = true;
                     this.jumpsLeft = this.maxJumps;
-                    this.canMouseDash = true;
                     this.canGrab = true;
                     this.isHanging = false;
                     this.airSpecials = 0;
@@ -1093,7 +1076,6 @@ class Fighter {
             this.vy = -14.5;
             this.vx = this.hangSide * 7.5;
             this.jumpsLeft = this.maxJumps;
-            this.canMouseDash = true;
             this.canGrab = true;
             audio.playJump();
             createParticles(this.x, this.y, '#38bdf8', 10);
@@ -1136,29 +1118,6 @@ class Fighter {
         return true;
     }
 
-    executeMouseDash(targetWorldX, targetWorldY) {
-        if (!this.canMouseDash || this.actionBlocked()) return false;
-
-        const dx = targetWorldX - this.x;
-        const dy = targetWorldY - this.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist === 0) return false;
-
-        const dashSpeed = 24;
-        this.vx = (dx / dist) * dashSpeed;
-        this.vy = (dy / dist) * dashSpeed;
-
-        this.canMouseDash = false;
-        this.isDashing = true;
-        this.dashTimer = 16;
-        this.dashHitConnected = false;
-        this.actionLock = LOCK;
-        this.setMove('DASH', 16);
-
-        audio.playDash();
-        createParticles(this.x, this.y, '#22d3ee', 16);
-        return true;
-    }
 
     /** The "J" attack (now on right click / the aim-matrix attack). The hitbox follows the animation. */
     attack(aimDirection) {
@@ -1236,7 +1195,7 @@ const botMem = (() => {
     try { return JSON.parse(localStorage.getItem(BOT_MEM_KEY)) || {}; } catch (e) { return {}; }
 })();
 function saveBotMemory() { try { localStorage.setItem(BOT_MEM_KEY, JSON.stringify(botMem)); } catch (e) { /* storage unavailable */ } }
-const MEM_KEYS = ['SHIELD', 'J', 'DASH', 'GRAB', 'CORE', 'BLINK', 'SPIRAL', 'SUPLEX', 'HEADBUTT'];
+const MEM_KEYS = ['SHIELD', 'J', 'GRAB', 'CORE', 'BLINK', 'SPIRAL', 'SUPLEX', 'HEADBUTT'];
 /** how often the player uses `k` (0..1, smoothed so a short history can't be extreme) */
 function habitOf(k) {
     let total = 0;
@@ -1293,7 +1252,6 @@ class AIBot extends Fighter {
             acted = this.useSpecial('SPIRAL', tx, ty);
         }
         if (!acted && this.actionTimer % 6 === 0 && dxAbs > 200 && below < 220) acted = this.useSpecial('BLINK', tx, ty);
-        if (!acted && this.actionTimer % 6 === 0) acted = this.executeMouseDash(tx, ty);
         if (!acted && this.actionTimer % 6 === 0) acted = this.executeGrabDash(tx, ty);
         if (!acted && this.attackTimer === 0 && this.actionTimer % 8 === 0 && dxAbs < 220) acted = this.attack(dir === 1 ? 'SIDE_RIGHT' : 'SIDE_LEFT');
 
@@ -1447,7 +1405,7 @@ class AIBot extends Fighter {
                 const r = Math.random();
                 if (target.isGrabDashing) {                      // grab is beaten by every active move: J it
                     if (r < 0.6 && this.attack(aim)) return;
-                } else if (r < 0.3 + 0.4 * (habit('J') + habit('DASH'))) {
+                } else if (r < 0.3 + 0.4 * habit('J')) {
                     this.raiseShield(26); return;                // shield counters it
                 } else if (r < 0.75 && this.attack(aim)) return; // J counters everything but shield
             }
@@ -1464,7 +1422,6 @@ class AIBot extends Fighter {
                 if (dist < 190 && Math.abs(distToTargetX) < 140 && distToTargetY < -50 && Math.random() < 0.4 &&
                     this.useSpecial('SPIRAL', target.x, target.y)) return;
                 if (dist < 150 && this.canGrab && Math.random() < 0.5 && this.executeGrabDash(target.x, target.y)) return;
-                if (dist < 180 && this.canMouseDash && Math.random() < 0.5 && this.executeMouseDash(target.x, target.y)) return;
             }
 
             // 5) we are above the player over the stage: headbutt dive
@@ -1579,7 +1536,6 @@ function handleBlocked(res, attacker, defender) {
         const d = attacker.x < defender.x ? -1 : 1;
         attacker.activeHitbox = null; defender.activeHitbox = null;
         attacker.swingHit = true; defender.swingHit = true;
-        attacker.isDashing = false; defender.isDashing = false;
         attacker.vx = d * 6; defender.vx = -d * 6;
     }
 }
@@ -1809,43 +1765,6 @@ function checkCombatCollisions(attacker, defender) {
         }
     }
 
-    // ---- left-click dash attack
-    if (attacker.isDashing && !attacker.dashHitConnected && defender.invincibleTimer <= 0) {
-        const dashLeft = attacker.x - attacker.width;
-        const dashRight = attacker.x + attacker.width;
-        const dashTop = attacker.y - attacker.height;
-        const dashBottom = attacker.y + attacker.height;
-
-        const defLeft = defender.x - defender.width / 2;
-        const defRight = defender.x + defender.width / 2;
-        const defTop = defender.y - defender.height / 2;
-        const defBottom = defender.y + defender.height / 2;
-
-        if (dashLeft < defRight && dashRight > defLeft && dashTop < defBottom && dashBottom > defTop) {
-            const res = interaction('DASH', defender);
-            if (res !== 'hit') {
-                attacker.dashHitConnected = true;
-                handleBlocked(res, attacker, defender);
-                return;
-            }
-
-            defender.interrupt();
-            defender.damage += 10;
-            const upwardKnockback = -18 - (defender.damage * 0.15);
-            defender.vy = upwardKnockback;
-            defender.vx = attacker.vx * 0.6;
-            defender.hitstun = 60;
-            defender.grounded = false;
-
-            attacker.dashHitConnected = true;
-            S.screenShake = 14;
-            audio.playHit(true);
-            createParticles(defender.x, defender.y, '#22d3ee', 20);
-            fx('hit', defender.x, defender.y, 14, Math.atan2(defender.vy, defender.vx));
-            return;
-        }
-    }
-
     // ---- swings, headbutt, spiral
     if (!attacker.activeHitbox || defender.invincibleTimer > 0) return;
 
@@ -1911,21 +1830,13 @@ function renderHUD() {
         p1StocksContainer.appendChild(pip);
     }
 
-    const dashBadge = document.getElementById('p1DashBadge');
-    if (me.canMouseDash) {
-        dashBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-500/50';
-        dashBadge.textContent = 'DASH READY';
-    } else {
-        dashBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900 text-slate-500 border border-slate-700';
-        dashBadge.textContent = 'DASH USED';
-    }
-
     // F-special status: charge meter while charging, otherwise how many air F moves are left
-    if (!fBadge && dashBadge.parentElement) {
+    const fAnchor = document.querySelector('#p1DashBadge, #p1FAnchor');
+    if (!fBadge && fAnchor) {
         fBadge = document.createElement('span');
         fBadge.id = 'p1FBadge';
         fBadge.style.marginLeft = '6px';
-        dashBadge.insertAdjacentElement('afterend', fBadge);
+        fAnchor.insertAdjacentElement('afterend', fBadge);
     }
     if (fBadge) {
         fBadge.style.color = me.charging ? '#ddd6fe' : (!me.grounded && me.airSpecials >= AIR_F_MAX ? '#64748b' : '#c4b5fd');
@@ -2164,7 +2075,6 @@ export function applyRemote(ev, slot = 1) {
     switch (ev.a) {
         case 'jump': f.jump(); break;
         case 'attack': f.attack(ev.dir); break;
-        case 'dash': f.executeMouseDash(ev.wx, ev.wy); break;
         case 'grab': f.executeGrabDash(ev.wx, ev.wy); break;
         case 'roll': f.executeRoll(); break;
         case 'special': f.fPress(ev.dir); break;

@@ -58,11 +58,23 @@ const inMenu = (e) => !!(e.target && e.target.closest && e.target.closest('butto
 
 function toggleFullscreen() {
     try {
-        if (document.fullscreenElement) { document.exitFullscreen(); return; }
+        if (document.fullscreenElement || document.webkitFullscreenElement) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
         const el = document.documentElement;
         const p = (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
         if (p && p.catch) p.catch(() => {});
     } catch (e) { /* fullscreen not allowed here (some embeds block it) */ }
+}
+
+{   // small top-left fullscreen button (touch layouts only, see style.css)
+    const fsBtn = document.getElementById('fsBtn');
+    const el = document.documentElement;
+    if (fsBtn && !(el.requestFullscreen || el.webkitRequestFullscreen)) fsBtn.remove();     // e.g. iPhone Safari has no fullscreen API
+    else if (fsBtn) {
+        const sync = () => fsBtn.classList.toggle('is-full', !!(document.fullscreenElement || document.webkitFullscreenElement));
+        for (const ev of ['pointerdown', 'pointerup', 'touchstart']) fsBtn.addEventListener(ev, (e) => e.stopPropagation());
+        fsBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggleFullscreen(); });
+        document.addEventListener('fullscreenchange', sync); document.addEventListener('webkitfullscreenchange', sync);
+    }
 }
 
 function doAction(action) {
@@ -73,13 +85,12 @@ function doAction(action) {
     if (S.gameState !== 'playing') return;
     if (S.online === 'guest') {                                    // the host runs the match: forward the input
         const aim = { wx: mouse.worldX, wy: mouse.worldY, dir: mouse.direction };
-        if (['jump', 'attack', 'dash', 'grab', 'roll', 'special'].includes(action)) sendAct(action, aim);
+        if (['jump', 'attack', 'grab', 'roll', 'special'].includes(action)) sendAct(action, aim);
         return;
     }
     switch (action) {
         case 'jump': p1.jump(); break;
         case 'attack': p1.attack(mouse.direction); break;
-        case 'dash': p1.executeMouseDash(mouse.worldX, mouse.worldY); break;
         case 'grab': p1.executeGrabDash(mouse.worldX, mouse.worldY); break;
         case 'roll': p1.executeRoll(); break;                       // only works while shielding
         case 'special': p1.fPress(mouse.direction); break;          // hold = Luminary Core, tap = variant for the aim

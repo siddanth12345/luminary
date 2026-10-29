@@ -1,10 +1,10 @@
 // Mobile controls. Left half of the screen = dynamic joystick. Right side = the aim grid
-// (red centre + four black buttons), jump, shield and dash buttons. Everything funnels into the
+// (red centre + four black buttons), jump and shield buttons. Everything funnels into the
 // same doAction / releaseAction path as the keyboard, so online guests work too.
 //
 //   red centre   tap = jab (neutral J) | hold 0.4 s = neutral F (Core) | drag onto a black button = that F move
 //   black buttons tap = J attack up / left / right / down
-//   shield       hold = shield | drag in a direction = grab dash that way | joystick left/right while shielding = roll
+//   shield       hold = shield | drag in a direction = dash-grab that way | joystick left/right while shielding = roll
 import { S, mouse, fighters, p1 } from './core.js';
 import { virtual } from './controls.js';
 import { getLayout, touchMode, onLayout } from './layout.js';
@@ -27,10 +27,9 @@ export function buildControls(host) {
             <button class="tz-b tz-main" data-main aria-label="Neutral attack">J<small>hold F</small></button>
         </div>
         <button class="tz-b tz-round tz-jump" data-k="jump">JUMP</button>
-        <button class="tz-b tz-round tz-shield" data-k="shield">SHIELD</button>
-        <button class="tz-b tz-round tz-dash" data-k="dash">DASH</button>`);
+        <button class="tz-b tz-round tz-shield" data-k="shield">SHIELD</button>`);
     const q = (s) => host.querySelector(s);
-    return { matrix: q('[data-k="matrix"]'), jump: q('[data-k="jump"]'), shield: q('[data-k="shield"]'), dash: q('[data-k="dash"]'), host };
+    return { matrix: q('[data-k="matrix"]'), jump: q('[data-k="jump"]'), shield: q('[data-k="shield"]'), host };
 }
 
 /** place the controls according to a layout (fractions of the host size) */
@@ -42,7 +41,7 @@ export function positionControls(refs, cfg, w = window.innerWidth, h = window.in
         el.style.left = (x - size / 2) + 'px'; el.style.top = (y - size / 2) + 'px';
     };
     place(refs.matrix, cfg.matrix, M);
-    for (const k of ['jump', 'shield', 'dash']) place(refs[k], cfg[k], cfg[k].s);
+    for (const k of ['jump', 'shield']) place(refs[k], cfg[k], cfg[k].s);
     // grid internals
     const sub = refs.matrix, d = M * 0.22, off = M * 0.31, c = M / 2;
     const put = (el, dx, dy, dd) => { el.style.width = el.style.height = dd + 'px'; el.style.left = (c + dx - dd / 2) + 'px'; el.style.top = (c + dy - dd / 2) + 'px'; };
@@ -196,13 +195,10 @@ export class TouchControls {
         };
         main.addEventListener('pointerup', mainEnd); main.addEventListener('pointercancel', mainEnd);
 
-        // ---------------------------------------------------------- jump / dash
+        // ---------------------------------------------------------- jump
         this.refs.jump.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.refs.jump.classList.add('down'); this.act('jump'); });
         const unj = () => this.refs.jump.classList.remove('down');
         this.refs.jump.addEventListener('pointerup', unj); this.refs.jump.addEventListener('pointercancel', unj);
-        this.refs.dash.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.refs.dash.classList.add('down'); this.act('dash', 'NEUTRAL'); });
-        const und = () => this.refs.dash.classList.remove('down');
-        this.refs.dash.addEventListener('pointerup', und); this.refs.dash.addEventListener('pointercancel', und);
 
         // ---------------------------------------------------------- shield: hold, drag = grab, joystick move = roll
         const sh = this.refs.shield;
@@ -220,7 +216,7 @@ export class TouchControls {
             const dx = e.clientX - sg.sx, dy = e.clientY - sg.sy, len = Math.hypot(dx, dy);
             const k = len > 34 ? 34 / len : 1;
             sh.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
-            if (!sg.grabbed && len > 44) {                                  // dragged: grab dash that way
+            if (!sg.grabbed && len > 44) {                                  // dragged: dash-grab that way
                 sg.grabbed = true;
                 virtual.shield = false; this.api.heldChanged();
                 const dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? [-1, 0] : [1, 0]) : (dy < 0 ? [0, -1] : [0, 1]);

@@ -8,6 +8,8 @@
 
     <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-0"></canvas>
 
+    <button id="fsBtn" class="lm-fs" aria-label="Fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path class="fs-in" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path class="fs-out" d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
+
     <!-- START SCREEN -->
     <div id="startScreen" class="absolute inset-0 z-50 flex flex-col items-center justify-center p-4" style="background:radial-gradient(ellipse at center, rgba(6,9,19,.55) 0%, rgba(6,9,19,.9) 100%)">
         <div class="glass-panel max-w-xl w-full rounded-3xl p-8 border border-slate-700 text-center shadow-2xl">
@@ -54,7 +56,7 @@
         <div class="glass-panel rounded-2xl p-4 w-72 pointer-events-auto border-l-4 border-l-cyan-400 transition-all duration-300">
             <div class="flex justify-between items-center mb-1">
                 <span class="text-xs font-black tracking-widest text-cyan-400 uppercase">P1 • THE LUMINARY</span>
-                <span id="p1DashBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-500/50">DASH READY</span>
+                <span id="p1FAnchor"></span>
             </div>
 
             <!-- Damage Percentage -->

@@ -410,12 +410,6 @@ export class FighterModel {
             p.rHx = -22; p.lHx = -14; p.rK = 10; p.lK = 16; p.headX = -22; p.lean = 6; p.aura = 1;
             return p;
         }
-        if (f.isDashing) {
-            this.visFacing = Math.abs(f.vx) > 1 ? Math.sign(f.vx) : f.facing;
-            p.pitch = this.#velPitch(); p.rSx = 168; p.lSx = 40; p.rSz = 4; p.lSz = 8; p.rE = 4; p.lE = 40;
-            p.rHx = -26; p.lHx = -10; p.rK = 14; p.lK = 24; p.headX = -22; p.lean = 8; p.roll = Math.sin(t * 40) * 3; p.aura = 1;
-            return p;
-        }
         if (f.hitstun > 0) {
             const sp = Math.hypot(f.vx, f.vy);
             const k = Math.sin(t * 28);
@@ -767,7 +761,7 @@ export class FighterModel {
             T.footL.push(get(this.legL.ank), get(this.legL.kn));
         }
         // body streak while dashing / lunging / grab-dashing
-        const fast = f.isDashing || f.isGrabDashing || (atk && atk.kind === 'LUNGE');
+        const fast = f.isGrabDashing || (atk && atk.kind === 'LUNGE');
         if (fast) {
             const c = this.root.position;
             const sp = Math.hypot(f.vx, f.vy) || 1;

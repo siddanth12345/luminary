@@ -9,7 +9,6 @@ export const ACTIONS = [
     { id: 'attack',   label: 'J attack (aim matrix)',     def: 'Mouse0',    group: 'Attacks' },
     { id: 'neutral',  label: 'Hold: force neutral aim',   def: 'Mouse2',    group: 'Attacks' },
     { id: 'special',  label: 'F special (hold = Core)',   def: 'KeyF',      group: 'Attacks' },
-    { id: 'dash',     label: 'Mouse dash attack',         def: 'ShiftLeft', group: 'Attacks' },
     { id: 'grab',     label: 'Dash-grab',                 def: 'KeyQ',      group: 'Attacks' },
     { id: 'shield',   label: 'Shield',                    def: 'KeyE',      group: 'Defense' },
     { id: 'roll',     label: 'Roll (while shielding)',    def: 'KeyR',      group: 'Defense' },

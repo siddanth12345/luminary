@@ -49,9 +49,7 @@ const PAGES = [
                     <table class="lm-table"><tr><th>Aim</th><th>Move</th></tr>
                         <tr><td>Neutral</td><td>Jab</td></tr><tr><td>Side</td><td>Side slash</td></tr>
                         <tr><td>Up</td><td>Up slash</td></tr><tr><td>Down</td><td>Down strike (launches on the ground, spikes in the air)</td></tr></table></div>
-                <div class="lm-card"><h4>Mouse dash · <kbd>${k('dash')}</kbd></h4>
-                    <p>Dash toward the cursor and hit whatever you touch (launches up). One per airtime.</p>
-                    <h4>Dash-grab · <kbd>${k('grab')}</kbd></h4>
+                <div class="lm-card"><h4>Dash-grab · <kbd>${k('grab')}</kbd></h4>
                     <p>A fast grab dash, one per airtime. Hold the opponent, then they are thrown toward your cursor. Grab <b>beats shield</b> but loses to almost every move.</p></div>
             </div>`,
     },
@@ -95,10 +93,10 @@ const PAGES = [
                 <tr><td><b>Grab / Suplex</b></td><td>Shield, Headbutt</td><td>Every other active move</td></tr>
                 <tr><td><b>Headbutt</b></td><td>Everything except Grab and Shield</td><td>Grab, Shield (clashes with J and Core)</td></tr>
                 <tr><td><b>J attack</b></td><td>Everything except Shield</td><td>Shield (clashes with Headbutt and J)</td></tr>
-                <tr><td><b>Core</b></td><td>Blink, Spiral, Headbutt, Grab (and the Suplex)</td><td>Shield, J, Headbutt (not Dash)</td></tr>
-                <tr><td><b>Dash, Blink, Spiral</b></td><td>Grab</td><td>Shield, J, Headbutt (and Core, for the F moves)</td></tr>
+                <tr><td><b>Core</b></td><td>Blink, Spiral, Headbutt, Grab (and the Suplex)</td><td>Shield, J, Headbutt</td></tr>
+                <tr><td><b>Blink, Spiral</b></td><td>Grab</td><td>Shield, J, Headbutt (and Core, for the F moves)</td></tr>
             </table>
-            <p class="lm-note">A move only counters while it is "live": a J attack during its swing, a dash while dashing, a Core while it is being cast, and so on.</p>`,
+            <p class="lm-note">A move only counters while it is "live": a J attack during its swing, a Core while it is being cast, and so on.</p>`,
     },
     {
         title: 'The Bots',
@@ -118,7 +116,7 @@ const PAGES = [
                 <div class="lm-card"><h4>Move</h4><p>Touch anywhere on the <b>left half</b> of the screen: a joystick appears under your thumb. Left / right walks, pushing down drops through platforms.</p></div>
                 <div class="lm-card"><h4>Aim grid</h4><p><b>Tap the red centre</b> for a jab. <b>Tap an arrow</b> for the up / side / down J attack. <b>Hold the red centre 0.4 s</b> for the neutral F (Luminary Core), or <b>drag it onto an arrow</b> for that F move (Spiral, Blink, Suplex / Headbutt).</p></div>
                 <div class="lm-card"><h4>Shield &amp; grab</h4><p>Hold <b>Shield</b>. While shielding, move the joystick left or right to roll. Drag the Shield button in a direction to dash-grab that way.</p></div>
-                <div class="lm-card"><h4>Jump &amp; dash</h4><p>Tap <b>Jump</b> (up to four in the air). <b>Dash</b> goes the way you are pushing the joystick, or the way you face.</p></div>
+                <div class="lm-card"><h4>Jump</h4><p>Tap <b>Jump</b> (up to four in the air).</p></div>
                 <div class="lm-card"><h4>Your layout</h4><p>Open <b>Settings</b> and choose <b>Edit layout</b> to move the buttons and change their size. You can also force PC or Mobile controls there.</p></div>
             </div>`,
     },
@@ -247,7 +245,7 @@ export class UI {
         let group = '', html = `<h4 class="lm-group">Layout</h4>
             <div class="lm-row"><span>Control layout<small class="lm-sub">Auto uses touch controls on phones and tablets</small></span>
               <span class="lm-seg">${[['auto', 'Auto'], ['pc', 'PC'], ['mobile', 'Mobile']].map(([m, t]) => `<button class="lm-segb${L.mode === m ? ' on' : ''}" data-mode="${m}">${t}</button>`).join('')}</span></div>
-            <div class="lm-row"><span>Mobile button layout<small class="lm-sub">Move the grid, jump, shield and dash buttons and resize them</small></span><button class="lm-key" data-edit-layout>Edit layout…</button></div>
+            <div class="lm-row"><span>Mobile button layout<small class="lm-sub">Move the grid, jump and shield buttons and resize them</small></span><button class="lm-key" data-edit-layout>Edit layout…</button></div>
             <div class="lm-row"><span>Fullscreen</span><button class="lm-key" data-fs>Toggle</button></div>
             <h4 class="lm-group">PC controls (keyboard &amp; mouse)</h4>`;
         group = 'PC';

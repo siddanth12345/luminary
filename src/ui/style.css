@@ -203,7 +203,6 @@ kbd{display:inline-block;min-width:22px;text-align:center;padding:1px 7px;border
 .tz-jump{border-color:#3b82f6;background:rgba(59,130,246,.25)}
 .tz-jump.down{background:rgba(59,130,246,.55)}
 .tz-shield{border-color:#e2e8f0;background:rgba(8,12,24,.62)}
-.tz-dash{border-color:#fbbf24;background:rgba(251,191,36,.18);font-size:11px}
 .touch-ui #aimMatrixHud{display:none!important}
 .touch-ui .lm-chat{right:auto;left:50%;top:68px;transform:translateX(-50%);width:min(22rem,46vw)}
 body.touch-ui,body.le-open{touch-action:none;overscroll-behavior:none}
@@ -238,3 +237,46 @@ body.touch-ui,body.le-open{touch-action:none;overscroll-behavior:none}
 .lm-sub{display:block;font-size:11px;color:#8aa0b5;font-weight:500;margin-top:2px}
 .touch-ui #gameHud{zoom:.62}
 .touch-ui #modeDisplayLabel{font-size:10px}
+
+/* ---------- small screens / phones ---------- */
+.lm-fs{display:none;position:fixed;top:6px;left:6px;z-index:80;width:32px;height:32px;border-radius:9px;align-items:center;justify-content:center;background:rgba(15,23,42,.72);border:1px solid rgba(34,211,238,.45);color:#67e8f9;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);touch-action:manipulation}
+.lm-fs .fs-out,.lm-fs.is-full .fs-in{display:none}
+.lm-fs.is-full .fs-out{display:inline}
+body.touch-ui .lm-fs,body.touch-ui .lm-fs{display:flex}
+@media (pointer:coarse){.lm-fs{display:flex}}
+.touch-ui #gameHud{padding-left:46px}
+#startScreen{overflow-y:auto;justify-content:flex-start;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+#startScreen>.glass-panel{margin:auto 0}
+.lm-modal{overflow-y:auto;align-items:flex-start;touch-action:pan-y}
+.lm-modal>*{margin:auto;max-width:100%}
+#gameOverModal{overflow-y:auto}
+@media (max-width:560px){
+  #startScreen{padding:44px 10px 10px}
+  #startScreen>.glass-panel{padding:16px 14px;border-radius:20px}
+  #startScreen h1{font-size:2.1rem;letter-spacing:.04em}
+  #startScreen p{margin-bottom:14px;font-size:11px}
+  #startScreen button.lm-medium-btn,#startScreen button.lm-online-btn,#startScreen .flex-col>button{padding:.7rem 1rem;font-size:.9rem;line-height:1.2rem}
+  .lm-modal{padding:44px 8px 8px}
+  #gameOverModal h1{font-size:2.6rem}
+}
+@media (max-height:520px) and (orientation:landscape){
+  #startScreen{padding:8px 52px}
+  #startScreen>.glass-panel{max-width:46rem;padding:10px 16px;border-radius:18px}
+  #startScreen h1{font-size:1.7rem;margin-bottom:0}
+  #startScreen p{margin-bottom:8px;font-size:10px}
+  #startScreen .flex-col{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  #startScreen .flex-col>button{padding:.5rem .6rem;font-size:.72rem;line-height:1rem;border-radius:.75rem}
+  #startScreen .lm-start-row{display:contents}
+  #startScreen .lm-start-row .lm-btn{padding:.55rem .6rem;font-size:.7rem}
+  .lm-modal{padding:8px 52px}
+  .lm-modal>*{max-height:none}
+  #gameOverModal{padding:8px}
+  #gameOverModal h1{font-size:2.2rem;margin-bottom:.25rem}
+  #inGameMenuContainer{bottom:10px;left:10px}
+}
+@media (max-height:520px){#menuDropdown{max-height:calc(100vh - 80px);overflow-y:auto}}
+#gameOverModal>.flex{flex-wrap:wrap;justify-content:center}
+@media (orientation:portrait){.touch-ui .lm-chat{top:120px}}
+.touch-ui #gameHud{padding-left:70px}
+@media (pointer:coarse),(max-width:560px){.lm-accbar{max-width:calc(100% - 52px);top:8px;right:8px}}
+@media (max-width:560px){.lm-accbar{top:46px;max-width:calc(100% - 16px)} #startScreen{padding-top:90px}}

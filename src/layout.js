@@ -8,7 +8,6 @@ export const DEFAULT_LAYOUT = {
         matrix: { x: 0.86, y: 0.50 },
         jump:   { x: 0.66, y: 0.80, s: 86 },
         shield: { x: 0.91, y: 0.84, s: 86 },
-        dash:   { x: 0.77, y: 0.90, s: 66 },
     },
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
