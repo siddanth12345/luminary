@@ -11,6 +11,7 @@ import { CX, CY, wx, wy, lerp, smooth, clamp01, syncSpace } from './space.js';
 import { buildStage } from './stage.js';
 import { FighterModel } from './fighterModel.js';
 import { Effects } from './effects.js';
+import { ItemsView } from './items.js';
 
 const FOV = 38;
 const PITCH = 7 * Math.PI / 180;   // slight look-down so the platform top reads in 3D
@@ -19,12 +20,14 @@ export class View {
     constructor(canvas) {
         this.canvas = canvas;
         const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-        r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        this.pr = Math.min(window.devicePixelRatio || 1, 1.5);
+        r.setPixelRatio(this.pr);
+        this.q = 0; this.ft = 0; this.inMatch = undefined;
         r.outputColorSpace = THREE.SRGBColorSpace;
         r.toneMapping = THREE.ACESFilmicToneMapping;
         r.toneMappingExposure = 1.05;
         r.shadowMap.enabled = true;
-        r.shadowMap.type = THREE.PCFSoftShadowMap;
+        r.shadowMap.type = THREE.PCFShadowMap;
 
         const scene = this.scene = new THREE.Scene();
         scene.background = new THREE.Color(0x060913);
@@ -44,7 +47,7 @@ export class View {
         key.position.set(-900, 1500, 1200);
         key.target.position.set(0, -150, 0);
         key.castShadow = true;
-        key.shadow.mapSize.set(4096, 4096);
+        key.shadow.mapSize.set(2048, 2048);
         const sc = key.shadow.camera;
         sc.left = -1500; sc.right = 1500; sc.top = 1000; sc.bottom = -1000; sc.near = 100; sc.far = 4500;
         key.shadow.bias = -0.0004; key.shadow.normalBias = 1.2;
@@ -59,10 +62,11 @@ export class View {
         this.fx.setStageTop(this.stage.topY);
         this.models = fighters.map((f, i) => this.makeModel(f, i));
         this.fx.models = this.models;
+        this.items = new ItemsView(scene);
         this.arenaVersion = S.arenaVersion || 0;
 
         // ---- post
-        const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
+        const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: (window.innerWidth < 900 ? 0 : 2) });
         this.composer = new EffectComposer(r, rt);
         this.composer.addPass(new RenderPass(scene, this.camera));
         this.bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), 0.5, 0.55, 0.92);
@@ -80,8 +84,9 @@ export class View {
     }
 
     makeModel(f, i) {
-        const m = new FighterModel(this.scene, f, { variant: i === 0 ? 'hero' : 'rival', fx: this.fx });
+        const m = new FighterModel(this.scene, f, { variant: i === 0 ? 'hero' : 'rival', fx: this.fx, light: i < 2 });
         m.setStageBounds(STAGE.x, STAGE.x + STAGE.width, this.stage.topY);
+        if (this.inMatch === false) m.root.visible = false;
         return m;
     }
 
@@ -95,6 +100,8 @@ export class View {
             this.fx.setStageTop(this.stage.topY);
             this.models.forEach((m, i) => m.setStageBounds(STAGE.x, STAGE.x + STAGE.width, this.stage.topY));
             this.camDist = 0;
+            this.applyQuality();
+            for (const g of this.stage.rocks) g.visible = this.inMatch !== false;
         }
         fighters.forEach((f, i) => {
             const m = this.models[i];
@@ -102,11 +109,22 @@ export class View {
         });
     }
 
+    applyQuality() {
+        const q = this.q, cap = Math.min(window.devicePixelRatio || 1, 1.5);
+        const pr = q >= 4 ? 0.6 : q >= 3 ? 0.8 : Math.min(cap, q >= 2 ? 1 : cap);
+        if (pr !== this.pr) { this.pr = pr; this.renderer.setPixelRatio(pr); this.resize(); }
+        const m = this.inMatch !== false;
+        this.bloom.enabled = m && q < 1;
+        const sh = m && q < 2;
+        if (this.renderer.shadowMap.enabled !== sh) { this.renderer.shadowMap.enabled = sh; this.key.castShadow = sh; this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); }
+        this.stage.stars.visible = q < 3;
+    }
+
     resize() {
         const w = window.innerWidth, h = window.innerHeight;
         this.renderer.setSize(w, h, false);
         this.composer.setSize(w, h);
-        this.bloom.setSize(w, h);
+        this.bloom.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
         this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
         this.w = w; this.h = h;
@@ -206,9 +224,33 @@ export class View {
             this.camera.updateMatrixWorld(true);
         }
 
+        // adaptive quality ladder: measure the real frame time; below ~30 fps step down (bloom, then shadows, then resolution),
+        // and step back up after a long smooth stretch
+        this.ft = this.ft ? this.ft * 0.92 + dt * 0.08 : dt;
+        this.qT = (this.qT || 0) + dt;
+        if (this.qT > 1.2) {
+            if (this.ft > 1 / 30 && this.q < 4) { this.q++; this.qT = 0; this.applyQuality(); }
+            else if (this.ft < 1 / 58 && this.q > 0 && this.qT > 8) { this.q--; this.qT = 0; this.applyQuality(); }
+            else if (this.ft < 1 / 30) this.qT = Math.min(this.qT, 1.2);
+        }
+
+        // outside a match (menu / lobby) keep the scene light: no rocks, fewer stars, no fighters or shadows
+        const inMatch = S.gameState !== 'start';
+        if (inMatch !== this.inMatch) {
+            this.inMatch = inMatch;
+            for (const g of this.stage.rocks) g.visible = inMatch;
+            this.stage.stars.material.opacity = inMatch ? 0.95 : 0.6;
+            this.applyQuality();
+            for (const m of this.models) m.root.visible = inMatch;
+            if (!inMatch) this.items.update(0, this.clock, this.models);
+            this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
+        }
         this.stage.update(this.clock, dt);
-        for (const m of this.models) m.update(dt, alpha, this.clock);
-        this.fx.update(dt, this.models);
+        if (inMatch) {
+            for (const m of this.models) m.update(dt, alpha, this.clock);
+            this.fx.update(dt, this.models);
+            this.items.update(dt, this.clock, this.models);
+        } else this.fx.clearEvents();
 
         // keep the shadow frustum centred on the action
         this.composer.render(dt);

@@ -2,7 +2,7 @@
 // carried over 1:1 from the original single-file game.
 import {
     S, audio, step, p1, p2, fighters, keys, mouse, dramaticZoom,
-    updateAimMatrix, renderHUD, startMatchSequence, gameOverModal,
+    updateAimMatrix, renderHUD, startMatchSequence, gameOverModal, bufferInput, inputBuf,
 } from './core.js';
 import { held, actionsFor } from './controls.js';
 import { TouchControls } from './touch.js';
@@ -18,7 +18,6 @@ import { Queue, joinQueue } from './net/queue.js';
 import { ACC, initAccount, setProfileListener, recordResult } from './account.js';
 import { AccountUI, Toasts } from './accountUI.js';
 import { BorgsUI } from './borgsUI.js';
-import { ChatUI } from './chatUI.js';
 import { Inbox, startInbox, announceSplinter, acceptInvite, acceptRequest, declineRequest, sendBorgRequest } from './net/inbox.js';
 import { isBorg, isSelf, getRequests, onBorgs } from './friends.js';
 
@@ -33,7 +32,6 @@ const touch = new TouchControls({
 ui.layoutEditor = new LayoutEditor({ root: document.body });
 const lobby = new LobbyUI({ root: $('luminary-root'), openBtn: $('onlineBtnStart') });
 const toasts = new Toasts($('luminary-root'));
-const chat = new ChatUI({ root: $('luminary-root') });
 const borgsUI = new BorgsUI({ root: $('luminary-root'), toasts, onInviteSent: () => lobby.open('Invite sent. Waiting for your friend to join…') });
 const custom = new CustomUI({ root: $('luminary-root'), openBtn: $('customBtnStart'), openBorgs: () => borgsUI.open('borgs') });
 const partyUI = new PartyUI({ root: $('luminary-root'), openBtn: $('partyBtnStart'), toasts });
@@ -56,47 +54,53 @@ window.addEventListener('pagehide', () => { announceSplinter(); });
 // Controls menu (start screen and pause menu).
 const inMenu = (e) => !!(e.target && e.target.closest && e.target.closest('button, a, input, select, .lm-modal, #menuDropdown'));
 
-function toggleFullscreen() {
+let wantFs = false;                 // the player turned fullscreen on: if Safari drops it by itself, re-enter on the next touch
+const inFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+function enterFs() {
     try {
-        if (document.fullscreenElement || document.webkitFullscreenElement) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
         const el = document.documentElement;
-        const p = (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+        const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (!fn) return;
+        const p = fn.call(el, { navigationUI: 'hide' });
         if (p && p.catch) p.catch(() => {});
     } catch (e) { /* fullscreen not allowed here (some embeds block it) */ }
 }
-
-{   // small top-left fullscreen button (touch layouts only, see style.css)
-    const fsBtn = document.getElementById('fsBtn');
-    const el = document.documentElement;
-    if (fsBtn && !(el.requestFullscreen || el.webkitRequestFullscreen)) fsBtn.remove();     // e.g. iPhone Safari has no fullscreen API
-    else if (fsBtn) {
-        const sync = () => fsBtn.classList.toggle('is-full', !!(document.fullscreenElement || document.webkitFullscreenElement));
-        for (const ev of ['pointerdown', 'pointerup', 'touchstart']) fsBtn.addEventListener(ev, (e) => e.stopPropagation());
-        fsBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggleFullscreen(); });
-        document.addEventListener('fullscreenchange', sync); document.addEventListener('webkitfullscreenchange', sync);
-    }
+function toggleFullscreen() {
+    try {
+        if (inFs()) { wantFs = false; (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+        wantFs = true; enterFs();
+    } catch (e) { /* ignore */ }
 }
+// Safari leaves fullscreen on some swipes (e.g. sliding a button upward). Tell it we did not mean that:
+// touch gestures on the game never scroll / pinch / pull, and if it still drops out we re-enter on the next tap.
+document.addEventListener('fullscreenchange', () => { if (!inFs() && wantFs && S.gameState !== 'start') wantFs = true; });
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.lm-modal, #startScreen, #menuDropdown, .le-screen, input, textarea')) return;   // menus may scroll
+    e.preventDefault();
+}, { passive: false });
+document.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch' && wantFs && !inFs()) enterFs(); }, true);
 
 function doAction(action) {
     if (action === 'tutorial') { ui.toggleTutorial(); return; }
     if (action === 'fullscreen') { toggleFullscreen(); return; }
-    if (action === 'chat') { chat.toggle(); return; }
-    if (window.__luminaryChat) return;                      // typing a chat message: no game input
     if (S.gameState !== 'playing') return;
     if (S.online === 'guest') {                                    // the host runs the match: forward the input
         const aim = { wx: mouse.worldX, wy: mouse.worldY, dir: mouse.direction };
+        if (action === 'attack') aim.hold = true;
         if (['jump', 'attack', 'grab', 'roll', 'special'].includes(action)) sendAct(action, aim);
         return;
     }
     switch (action) {
-        case 'jump': p1.jump(); break;
-        case 'attack': p1.attack(mouse.direction); break;
-        case 'grab': p1.executeGrabDash(mouse.worldX, mouse.worldY); break;
+        case 'jump': if (!p1.jump()) bufferInput('jump'); break;
+        case 'attack': if (!p1.attack(mouse.direction, true)) bufferInput('attack', { dir: mouse.direction, hold: true }); break;
+        case 'grab': if (!p1.executeGrabDash(mouse.worldX, mouse.worldY)) bufferInput('grab', { wx: mouse.worldX, wy: mouse.worldY }); break;
         case 'roll': p1.executeRoll(); break;                       // only works while shielding
         case 'special': p1.fPress(mouse.direction); break;          // hold = Luminary Core, tap = variant for the aim
     }
 }
 function releaseAction(action) {
+    if (action === 'attack') { inputBuf.hold = false; if (S.online === 'guest') sendAct('attackUp'); else p1.releaseAttack(); return; }
     if (S.online === 'guest') {
         if (action === 'special' && S.gameState === 'playing') sendAct('specialUp', { wx: mouse.worldX, wy: mouse.worldY, dir: mouse.direction });
         return;
@@ -143,7 +147,7 @@ function toggleGameMenu() {
     if (dd.classList.contains('hidden')) { renderMenuPlayers(); dd.classList.remove('hidden'); } else dd.classList.add('hidden');
 }
 window.addEventListener('keydown', (e) => {
-    if (e.code !== 'Escape' || e.repeat || window.__luminaryChat) return;
+    if (e.code !== 'Escape' || e.repeat) return;
     if (!['playing', 'countdown'].includes(S.gameState)) return;
     if (document.querySelector('.lm-modal:not(.lm-hidden)') || ui.guide.active) return;   // a dialog / the tutorial owns Esc
     e.preventDefault();
@@ -153,7 +157,6 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keydown', (e) => {
     audio.init();
     const acts = actionsFor(e.code);
-    if (acts.includes('chat') && !window.__luminaryChat) e.preventDefault();
     if (acts.length) { if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault(); }
     if (e.repeat) return;
     held.add(e.code);
@@ -167,7 +170,7 @@ window.addEventListener('keyup', (e) => {
     if (S.online === 'guest') sendHeld();
 });
 // losing focus while holding a key must not leave a charge (or a direction) stuck
-window.addEventListener('blur', () => { p1.cancelF(); held.clear(); if (S.online === 'guest') { sendAct('cancelF'); sendHeld(); } });
+window.addEventListener('blur', () => { p1.cancelF(); p1.releaseAttack(); held.clear(); if (S.online === 'guest') { sendAct('cancelF'); sendHeld(); } });
 
 let lastAimSent = 0;
 window.addEventListener('mousemove', (e) => {
@@ -260,8 +263,8 @@ function frame(now) {
     if (!window.__luminaryPaused) {
         acc += dt;
         let n = 0;
-        while (acc >= STEP && n < 6) { step(); acc -= STEP; n++; }
-        if (n === 6) acc = 0;
+        while (acc >= STEP && n < 3) { step(); acc -= STEP; n++; }
+        if (n === 3) acc = 0;
     }
     ui.guide.tick();
     touch.tick();

@@ -286,6 +286,8 @@ export class Effects {
     }
 
     // ============================================================ per-frame
+    clearEvents() { fxEvents.length = 0; }
+
     #consumeEvents() {
         while (fxEvents.length) {
             const e = fxEvents.shift();
@@ -365,6 +367,22 @@ export class Effects {
                 case 'kick':             // knocked off a ledge. a = side
                     this.ring(pos, 6, 60, 0.3, '#f59e0b', 'screen');
                     this.sparks(pos, '#fbbf24', 14, 260, 0.35);
+                    break;
+                case 'heal':
+                    this.ring(pos, 10, 90, 0.5, '#4ade80', 'screen');
+                    this.sparks(pos, '#86efac', 14, 200, 0.7, 'up');
+                    break;
+                case 'pickup':
+                    this.ring(pos, 6, 54, 0.35, '#fde68a', 'screen');
+                    this.sparks(pos, '#ffffff', 8, 180, 0.35);
+                    break;
+                case 'burn':
+                    this.star(pos, 60, '#fb923c', 0.2, 4);
+                    this.sparks(pos, '#f97316', 12, 260, 0.5, 'up');
+                    break;
+                case 'bubble':             // a = radius
+                    this.ring(pos, 20, e.a || 760, 0.8, '#38bdf8', 'screen');
+                    this.star(pos, 140, '#bae6fd', 0.3, 4);
                     break;
                 case 'ko':
                     this.star(pos, 260, '#ffffff', 0.45);

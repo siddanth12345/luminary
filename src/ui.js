@@ -13,7 +13,7 @@ const PAGES = [
         html: (k) => `
             <div class="lm-guidecta"><div><b>Want to learn by doing?</b><br><span>Play the tutorial inside the map: every step asks you to do one thing, and moves on by itself when you do it. <kbd>Backspace</kbd> goes back a step, <kbd>Enter</kbd> skips one, <kbd>${k('fullscreen')}</kbd> toggles fullscreen.</span></div>
                 <button class="lm-btn" data-start-guide>▶ Start guided tutorial</button></div>
-            <p class="lm-lead">Knock the bot off the stage. Reach <b>250%</b> damage and you are KO'd instantly, and so is the bot. Everyone has 3 stocks.</p>
+            <p class="lm-lead">Knock the bot off the stage. Reach <b>250%</b> damage and you are KO'd instantly. Everyone has 3 stocks (custom matches can use a 1 to 10 minute kill timer instead).</p>
             <div class="lm-grid">
                 <div class="lm-card"><h4>Aim matrix</h4>
                     <p>Your mouse is measured <b>from your fighter</b>. Inside the small centre circle it reads <b>NEUTRAL</b>; outside it reads <b>UP / DOWN / SIDE</b>. The matrix at the bottom of the screen shows what you are aiming. Hold <kbd>${k('neutral')}</kbd> to force NEUTRAL without moving the mouse.</p></div>
@@ -44,19 +44,21 @@ const PAGES = [
         title: 'Attacks',
         html: (k) => `
             <div class="lm-grid">
-                <div class="lm-card"><h4>J attack · <kbd>${k('attack')}</kbd></h4>
-                    <p>A slash chosen by your aim. The hitbox is only live during the swing and <b>travels with the animation</b> and with you.</p>
+                <div class="lm-card"><h4>Melee · PC <kbd>${k('attack')}</kbd> · Mobile: aim grid</h4>
+                    <p>A slash chosen by your aim (PC: mouse position; mobile: which arrow you tap). The hitbox is only live during the swing. <b>Hold</b> a side, up or down melee to charge it (1.7 s, you glow white, then glisten): up to +30% damage and knockback on release.</p>
                     <table class="lm-table"><tr><th>Aim</th><th>Move</th></tr>
-                        <tr><td>Neutral</td><td>Jab</td></tr><tr><td>Side</td><td>Side slash</td></tr>
+                        <tr><td>Neutral</td><td>Sword spin all the way around (ground or air), knocks up only; can't be charged</td></tr><tr><td>Side</td><td>Side slash</td></tr>
                         <tr><td>Up</td><td>Up slash</td></tr><tr><td>Down</td><td>Down strike (launches on the ground, spikes in the air)</td></tr></table></div>
-                <div class="lm-card"><h4>Dash-grab · <kbd>${k('grab')}</kbd></h4>
-                    <p>A fast grab dash, one per airtime. Hold the opponent, then they are thrown toward your cursor. Grab <b>beats shield</b> but loses to almost every move.</p></div>
+                <div class="lm-card"><h4>Grab · PC <kbd>${k('grab')}</kbd> · Mobile: Grab button</h4>
+                    <p>PC: aim with the mouse, press grab. Mobile: <b>drag the Grab button</b> toward your target and <b>release</b> (it snaps back; a grab only fires once aimed and released). Grab <b>beats shield</b>, loses to nearly everything else, and its knockback is 0.7x a melee and grows with damage. It also picks up and throws items.</p></div>
+                <div class="lm-card"><h4>Items (custom matches)</h4>
+                    <p>Grab an item to pick it up or use it. <b>Ball</b>: throw for 10 damage, bounces back, 2 throws. <b>Strawberry</b>: heals 30%. <b>Balloon</b>: 7 jumps (Jump). <b>Firestick</b>: 5x melee reach, shrinks 0.5 per hit. <b>Clock</b>: throw it, and after 1 s a bubble slows everything inside to 0.3x for 15 s.</p></div>
             </div>`,
     },
     {
         title: 'F Specials',
         html: (k) => `
-            <p class="lm-lead"><kbd>${k('special')}</kbd> is your special. <b>Hold it</b> (or aim neutral) and you charge a Luminary Core. <b>Tap it</b> (released within 0.5 s) with your aim off-centre and you get a variant for that direction.</p>
+            <p class="lm-lead"><kbd>${k('special')}</kbd> is your special. <b>Hold it</b> (mobile: hold the red centre, and you can drag it to aim while it charges) (or aim neutral) and you charge a Luminary Core. <b>Tap it</b> (released within 0.5 s) with your aim off-centre and you get a variant for that direction.</p>
             <table class="lm-table lm-wide">
                 <tr><th>Aim</th><th>Move</th><th>What it does</th></tr>
                 <tr><td>Neutral / hold</td><td><b>Luminary Core</b></td><td>Charge up to 1.05 s. Release fires a slowish orb in a straight line at your cursor (no homing). Full charge: bigger orb, more damage, bigger explosion, and it turns <b>purple</b> (blue fighter) or <b>orange</b> (red fighter). Walk at 1.5x speed while charging.</td></tr>
@@ -114,8 +116,8 @@ const PAGES = [
         html: () => `
             <div class="lm-grid">
                 <div class="lm-card"><h4>Move</h4><p>Touch anywhere on the <b>left half</b> of the screen: a joystick appears under your thumb. Left / right walks, pushing down drops through platforms.</p></div>
-                <div class="lm-card"><h4>Aim grid</h4><p><b>Tap the red centre</b> for a jab. <b>Tap an arrow</b> for the up / side / down J attack. <b>Hold the red centre 0.4 s</b> for the neutral F (Luminary Core), or <b>drag it onto an arrow</b> for that F move (Spiral, Blink, Suplex / Headbutt).</p></div>
-                <div class="lm-card"><h4>Shield &amp; grab</h4><p>Hold <b>Shield</b>. While shielding, move the joystick left or right to roll. Drag the Shield button in a direction to dash-grab that way.</p></div>
+                <div class="lm-card"><h4>Aim grid</h4><p><b>Tap the red centre</b> for the sword spin. <b>Tap an arrow</b> for the up / side / down melee, or <b>hold</b> it to charge. <b>Hold the red centre 0.4 s</b> for the neutral F (Luminary Core), or <b>drag it onto an arrow</b> for that F move (Spiral, Blink, Suplex / Headbutt).</p></div>
+                <div class="lm-card"><h4>Shield &amp; grab</h4><p>Hold <b>Shield</b> (it does not drag). While shielding, move the joystick left or right to roll. Use the separate <b>Grab</b> button to grab: drag to aim, release to fire.</p></div>
                 <div class="lm-card"><h4>Jump</h4><p>Tap <b>Jump</b> (up to four in the air).</p></div>
                 <div class="lm-card"><h4>Your layout</h4><p>Open <b>Settings</b> and choose <b>Edit layout</b> to move the buttons and change their size. You can also force PC or Mobile controls there.</p></div>
             </div>`,

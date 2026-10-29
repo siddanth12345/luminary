@@ -6,12 +6,20 @@ import { S, p1, p2, startMatchSequence, applyRemote, applySnapshot, NETHOOK, res
 import { openTransport, hasRealtime } from './transport.js';
 import { isDown } from '../controls.js';
 import { displayName } from '../account.js';
+import { ITEM_TYPES, ITEM_DEFAULT, ITEM_INTERVAL_MIN, ITEM_INTERVAL_MAX } from '../items.js';
 import { bindChat, onRemoteChat, clearChat } from './chat.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const newCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const TIMEOUT_MS = 7000;
 
+
+export function cleanItems(i) {
+    i = i || {};
+    const types = Array.isArray(i.types) ? ITEM_TYPES.filter(t => i.types.includes(t)) : ITEM_TYPES.slice();
+    return { on: !!i.on, types, interval: Math.max(ITEM_INTERVAL_MIN, Math.min(ITEM_INTERVAL_MAX, Math.round(+i.interval) || ITEM_DEFAULT.interval)) };
+}
+export const defaultSettings = () => ({ teams: false, startDamage: 0, stocks: 3, mode: 'stock', timeLimit: 5, items: cleanItems(ITEM_DEFAULT) });
 export const Online = {
     role: null,           // 'host' | 'guest' | null
     code: '',
@@ -22,7 +30,7 @@ export const Online = {
     viaQueue: false,
     slot: 1,              // my fighter slot (0 = host)
     myId: '',
-    lobby: { members: [], settings: { teams: false, startDamage: 0, stocks: 3 }, started: false },
+    lobby: { members: [], settings: defaultSettings(), started: false },
     peerName: 'Opponent',
     t: null,
     lastRecv: 0,
@@ -49,7 +57,7 @@ export function leaveRoom(notify = true) {
     }
     Online.t = null; Online.role = null; Online.code = ''; stopTimers(); bindChat(null);
     NETHOOK.send = null; S.online = null; S.opponentName = null; lastHeld = '';
-    Online.lobby = { members: [], settings: { teams: false, startDamage: 0, stocks: 3 }, started: false }; Online.slot = 1; clearInterval(lobbyTimer);
+    Online.lobby = { members: [], settings: defaultSettings(), started: false }; Online.slot = 1; clearInterval(lobbyTimer);
     set('idle');
 }
 
@@ -94,7 +102,7 @@ export async function hostRoom(code, mode = 'pvp') {
     bindChat((msg) => t.send(msg)); clearChat();
     watch();
     if (mode === 'lobby') {
-        Online.lobby = { members: [{ id: 'host', slot: 0, name: Online.name, team: 'red', seen: Infinity }], settings: { teams: false, startDamage: 0, stocks: 3 }, started: false };
+        Online.lobby = { members: [{ id: 'host', slot: 0, name: Online.name, team: 'red', seen: Infinity }], settings: defaultSettings(), started: false };
         Online.slot = 0;
         lobbyTimer = setInterval(lobbyTick, 1500);
         set('connected', 'Lobby open. Share the code ' + Online.code);
@@ -134,7 +142,10 @@ function lobbyTick() {
 }
 export function setLobbySetting(k, v) {
     if (Online.role !== 'host' || Online.lobby.started) return;
-    if (Online.lobby.settings[k] === v) return;       // no change: don't rebuild the panel under the user's mouse
+    if (k === 'startDamage') v = Math.max(0, Math.min(249, Math.round(+v) || 0));
+    if (k === 'timeLimit') v = Math.max(1, Math.min(10, Math.round(+v) || 5));
+    if (k === 'items') v = cleanItems(v);
+    if (JSON.stringify(Online.lobby.settings[k]) === JSON.stringify(v)) return;       // no change: don't rebuild the panel under the user's mouse
     Online.lobby.settings[k] = v; lobbyPush();
 }
 export function setMemberTeam(slot, team) {
@@ -163,7 +174,7 @@ export function beginLobbyMatch() {
     const L = Online.lobby;
     if (L.members.length < 2) { Online.note = 'You need at least 2 players'; Online.onChange(); return false; }
     L.started = true;
-    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null })), teams: L.settings.teams, startDamage: +L.settings.startDamage || 0, stocks: +L.settings.stocks || 3 };
+    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null })), teams: L.settings.teams, startDamage: Math.min(249, +L.settings.startDamage || 0), stocks: +L.settings.stocks || 3, mode: L.settings.mode === 'timer' ? 'timer' : 'stock', timeLimit: +L.settings.timeLimit || 5, items: cleanItems(L.settings.items) };
     S.online = 'host'; S.opponentName = null;
     NETHOOK.send = (snap) => Online.t && Online.t.send({ t: 'snap', s: snap });
     Online.t.send({ t: 'start', cfg });

@@ -6,15 +6,14 @@ export const ACTIONS = [
     { id: 'left',     label: 'Move left',                 def: 'KeyA',      group: 'Movement' },
     { id: 'right',    label: 'Move right',                def: 'KeyD',      group: 'Movement' },
     { id: 'jump',     label: 'Jump / leave ledge',        def: 'Space',     group: 'Movement' },
-    { id: 'attack',   label: 'J attack (aim matrix)',     def: 'Mouse0',    group: 'Attacks' },
+    { id: 'attack',   label: 'Melee (aim matrix, hold = charge)',     def: 'Mouse0',    group: 'Attacks' },
     { id: 'neutral',  label: 'Hold: force neutral aim',   def: 'Mouse2',    group: 'Attacks' },
     { id: 'special',  label: 'F special (hold = Core)',   def: 'KeyF',      group: 'Attacks' },
-    { id: 'grab',     label: 'Dash-grab',                 def: 'KeyQ',      group: 'Attacks' },
+    { id: 'grab',     label: 'Grab (aim, then release)',               def: 'KeyQ',      group: 'Attacks' },
     { id: 'shield',   label: 'Shield',                    def: 'KeyE',      group: 'Defense' },
     { id: 'roll',     label: 'Roll (while shielding)',    def: 'KeyR',      group: 'Defense' },
     { id: 'tutorial', label: 'Open the tutorial',         def: 'KeyH',      group: 'Menus' },
     { id: 'fullscreen', label: 'Toggle fullscreen',       def: 'Semicolon', group: 'Menus' },
-    { id: 'chat',       label: 'Open chat (online)',       def: 'Slash',     group: 'Menus' },
     { id: 'drop',       label: 'Drop through platforms',   def: 'KeyS',      group: 'Movement' },
 ];
 

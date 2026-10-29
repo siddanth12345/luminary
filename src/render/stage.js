@@ -192,7 +192,7 @@ export function buildStage(scene) {
     nebula(0xdb2777, 1500, 1000, -3000, 3000, 0.28);
 
     // starfield
-    const starCount = 1900;
+    const starCount = 650;
     const sp = new Float32Array(starCount * 3);
     const sc = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
@@ -208,7 +208,7 @@ export function buildStage(scene) {
     const sg = new THREE.BufferGeometry();
     sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
     sg.setAttribute('color', new THREE.BufferAttribute(sc, 3));
-    const stars = new THREE.Points(sg, new THREE.PointsMaterial({ size: 9, sizeAttenuation: true, vertexColors: true, fog: false, transparent: true, opacity: 0.95 }));
+    const stars = new THREE.Points(sg, new THREE.PointsMaterial({ size: 14, sizeAttenuation: true, vertexColors: true, fog: false, transparent: true, opacity: 0.95 }));
     decor.add(stars);
     anim.push((t) => { stars.position.x = Math.sin(t * 0.02) * 40; });
 
@@ -216,7 +216,7 @@ export function buildStage(scene) {
     const rocks = [];
     const rockMat = new THREE.MeshStandardMaterial({ color: 0x1f2a44, metalness: 0.4, roughness: 0.6, flatShading: true });
     const rockGlow = glowMat('#38bdf8', 1.8);
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 7; i++) {
         const g = new THREE.Group();
         const s = 40 + Math.random() * 120;
         const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), rockMat);
@@ -277,7 +277,7 @@ export function buildStage(scene) {
     root.add(frame);
 
     return {
-        root, stage, topY, W, D,
+        root, stage, topY, W, D, decor, stars, rocks,
         update(t, dt) { for (const f of anim) f(t, dt); },
         /** world-space (render) y of the ledge for the lights / effects */
         ledgeY: topY,

@@ -2,9 +2,10 @@
 // (red centre + four black buttons), jump and shield buttons. Everything funnels into the
 // same doAction / releaseAction path as the keyboard, so online guests work too.
 //
-//   red centre   tap = jab (neutral J) | hold 0.4 s = neutral F (Core) | drag onto a black button = that F move
-//   black buttons tap = J attack up / left / right / down
-//   shield       hold = shield | drag in a direction = dash-grab that way | joystick left/right while shielding = roll
+//   red centre   tap = sword spin (neutral melee) | hold 0.4 s = neutral F (Core, then drag to aim it) | drag onto a black button = that F move
+//   black buttons tap = melee up / left / right / down, hold = charge
+//   grab         drag to aim, release to fire the grab (or throw / use an item); springs back
+//   shield       hold = shield | joystick left/right while shielding = roll
 import { S, mouse, fighters, p1 } from './core.js';
 import { virtual } from './controls.js';
 import { getLayout, touchMode, onLayout } from './layout.js';
@@ -20,16 +21,17 @@ export function buildControls(host) {
     host.insertAdjacentHTML('beforeend', `
         <div class="tz-matrix" data-k="matrix">
             <div class="tz-ring"></div>
-            <button class="tz-b tz-dir" data-dir="UP" aria-label="Up attack">↑</button>
-            <button class="tz-b tz-dir" data-dir="SIDE_LEFT" aria-label="Left attack">←</button>
-            <button class="tz-b tz-dir" data-dir="SIDE_RIGHT" aria-label="Right attack">→</button>
-            <button class="tz-b tz-dir" data-dir="DOWN" aria-label="Down attack">↓</button>
-            <button class="tz-b tz-main" data-main aria-label="Neutral attack">J<small>hold F</small></button>
+            <button class="tz-b tz-dir" data-dir="UP" aria-label="Up attack"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M12 19V6M6 11l6-6 6 6" /></svg></button>
+            <button class="tz-b tz-dir" data-dir="SIDE_LEFT" aria-label="Left attack"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M19 12H6M11 6l-6 6 6 6" /></svg></button>
+            <button class="tz-b tz-dir" data-dir="SIDE_RIGHT" aria-label="Right attack"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M5 12h13M13 6l6 6-6 6" /></svg></button>
+            <button class="tz-b tz-dir" data-dir="DOWN" aria-label="Down attack"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M12 5v13M6 13l6 6 6-6" /></svg></button>
+            <button class="tz-b tz-main" data-main aria-label="Neutral attack (sword spin)"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M12 3a9 9 0 1 0 9 9" /><path d="M21 4v6h-6" /></svg><small>hold F</small><i class="tz-aim"></i></button>
         </div>
-        <button class="tz-b tz-round tz-jump" data-k="jump">JUMP</button>
-        <button class="tz-b tz-round tz-shield" data-k="shield">SHIELD</button>`);
+        <button class="tz-b tz-round tz-jump" data-k="jump"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M6 14l6-6 6 6" /><path d="M6 20l6-6 6 6" /></svg><span>JUMP</span></button>
+        <button class="tz-b tz-round tz-grab" data-k="grab"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11M11 10V5a1.5 1.5 0 0 1 3 0v6M14 10.5V6.5a1.5 1.5 0 0 1 3 0V14c0 4-2.5 6-5.5 6S6.5 18 6 15l-1.4-3.2a1.5 1.5 0 0 1 2.6-1.4L8 12" /></svg><span>GRAB</span><small>drag · release</small><i class="tz-aim"></i></button>
+        <button class="tz-b tz-round tz-shield" data-k="shield"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z" /></svg><span>SHIELD</span></button>`);
     const q = (s) => host.querySelector(s);
-    return { matrix: q('[data-k="matrix"]'), jump: q('[data-k="jump"]'), shield: q('[data-k="shield"]'), host };
+    return { matrix: q('[data-k="matrix"]'), jump: q('[data-k="jump"]'), grab: q('[data-k="grab"]'), shield: q('[data-k="shield"]'), host };
 }
 
 /** place the controls according to a layout (fractions of the host size) */
@@ -41,7 +43,7 @@ export function positionControls(refs, cfg, w = window.innerWidth, h = window.in
         el.style.left = (x - size / 2) + 'px'; el.style.top = (y - size / 2) + 'px';
     };
     place(refs.matrix, cfg.matrix, M);
-    for (const k of ['jump', 'shield']) place(refs[k], cfg[k], cfg[k].s);
+    for (const k of ['jump', 'grab', 'shield']) place(refs[k], cfg[k], cfg[k].s);
     // grid internals
     const sub = refs.matrix, d = M * 0.22, off = M * 0.31, c = M / 2;
     const put = (el, dx, dy, dd) => { el.style.width = el.style.height = dd + 'px'; el.style.left = (c + dx - dd / 2) + 'px'; el.style.top = (c + dy - dd / 2) + 'px'; };
@@ -147,27 +149,31 @@ export class TouchControls {
         };
         z.addEventListener('pointerup', joyEnd); z.addEventListener('pointercancel', joyEnd);
 
-        // ---------------------------------------------------------- black direction buttons: J attack
+        // ---------------------------------------------------------- black direction buttons: melee (hold = charge)
         for (const b of this.refs.matrix.querySelectorAll('.tz-dir')) {
-            b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.classList.add('down'); this.act('attack', b.dataset.dir); });
-            const up = () => b.classList.remove('down');
-            b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
+            let holding = false;
+            b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.setPointerCapture(e.pointerId); holding = true; b.classList.add('down'); this.act('attack', b.dataset.dir); });
+            const up = () => { b.classList.remove('down'); if (holding) { holding = false; this.api.releaseAction('attack'); } };
+            b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
         }
 
-        // ---------------------------------------------------------- red centre: jab / neutral F / directional F
+        // ---------------------------------------------------------- red centre: jab (spin) / neutral F / directional F; while charging a Core, drag to AIM it
         const main = this.refs.matrix.querySelector('.tz-main');
+        const aimEl = this.refs.matrix.querySelector('.tz-aim');
         let g = null;
         const dirButton = (d) => this.refs.matrix.querySelector(`.tz-dir[data-dir="${d}"]`);
         const clearSel = () => { for (const b of this.refs.matrix.querySelectorAll('.tz-dir')) b.classList.remove('sel'); };
+        const showAim = (v) => { if (!aimEl) return; if (!v) { aimEl.classList.remove('on'); return; } aimEl.classList.add('on'); aimEl.style.transform = `translateY(-50%) rotate(${Math.atan2(v[1], v[0])}rad)`; };
         main.addEventListener('pointerdown', (e) => {
             if (g) return;
             e.preventDefault(); e.stopPropagation(); main.setPointerCapture(e.pointerId);
-            g = { id: e.pointerId, sx: e.clientX, sy: e.clientY, sel: null, charging: false, timer: 0 };
+            g = { id: e.pointerId, sx: e.clientX, sy: e.clientY, sel: null, charging: false, timer: 0, aim: null };
             main.classList.add('down');
             g.timer = setTimeout(() => {
                 if (!g || g.sel) return;
                 g.charging = true; main.classList.add('charging');
                 this.act('special', 'NEUTRAL');                       // start charging the neutral F (Core)
+                clearSel(); showAim(g.aim);
             }, HOLD_MS);
         });
         main.addEventListener('pointermove', (e) => {
@@ -176,22 +182,26 @@ export class TouchControls {
             const lim = this.geo.off;
             const k = len > lim ? lim / len : 1;
             main.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+            if (g.charging) {                                         // the Core is charging: dragging only aims it (never switches move)
+                if (len > 10) { g.aim = [dx / len, dy / len]; showAim(g.aim); }
+                else { g.aim = null; showAim(null); }
+                return;
+            }
             let sel = null;
             if (len > this.geo.d * 0.45) sel = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'SIDE_LEFT' : 'SIDE_RIGHT') : (dy < 0 ? 'UP' : 'DOWN');
-            if (sel !== g.sel) {
-                g.sel = sel; clearSel(); if (sel) dirButton(sel).classList.add('sel');
-                if (sel && g.charging) { g.charging = false; main.classList.remove('charging'); this.api.cancelF(); }
-            }
+            if (sel !== g.sel) { g.sel = sel; clearSel(); if (sel) dirButton(sel).classList.add('sel'); }
+            if (len > 10) g.aim = [dx / len, dy / len]; else g.aim = null;
         });
         const mainEnd = (e) => {
             if (!g || e.pointerId !== g.id) return;
             clearTimeout(g.timer);
             const s = g; g = null;
-            main.classList.remove('down', 'charging'); main.style.transform = ''; clearSel();
+            main.classList.remove('down', 'charging'); main.style.transform = ''; clearSel(); showAim(null);
             if (e.type === 'pointercancel') { if (s.charging) this.api.cancelF(); return; }
             if (s.sel) { this.act('special', s.sel); this.api.releaseAction('special'); }          // directional F move
-            else if (s.charging) { this.pressedAim = true; this.setAim('NEUTRAL'); this.api.releaseAction('special'); this.pressedAim = false; }   // release the Core
-            else this.act('attack', 'NEUTRAL');                                                    // quick tap: jab
+            else if (s.charging) {                                                                  // release the Core where it was aimed
+                this.pressedAim = true; this.setAim('NEUTRAL', s.aim || null); this.api.releaseAction('special'); this.pressedAim = false;
+            } else this.act('attack', 'NEUTRAL');                                                  // quick tap: sword spin
         };
         main.addEventListener('pointerup', mainEnd); main.addEventListener('pointercancel', mainEnd);
 
@@ -200,33 +210,47 @@ export class TouchControls {
         const unj = () => this.refs.jump.classList.remove('down');
         this.refs.jump.addEventListener('pointerup', unj); this.refs.jump.addEventListener('pointercancel', unj);
 
-        // ---------------------------------------------------------- shield: hold, drag = grab, joystick move = roll
+        // ---------------------------------------------------------- grab: drag to AIM, release to throw the grab (or use / throw an item). It springs back when let go.
+        const gb = this.refs.grab, gAim = gb.querySelector('.tz-aim');
+        let gg = null;
+        const gShow = (v) => { if (!v) { gAim.classList.remove('on'); return; } gAim.classList.add('on'); gAim.style.transform = `translateY(-50%) rotate(${Math.atan2(v[1], v[0])}rad)`; };
+        gb.addEventListener('pointerdown', (e) => {
+            if (gg) return;
+            e.preventDefault(); e.stopPropagation(); gb.setPointerCapture(e.pointerId);
+            gg = { id: e.pointerId, sx: e.clientX, sy: e.clientY, aim: null };
+            gb.classList.add('down');
+        });
+        gb.addEventListener('pointermove', (e) => {
+            if (!gg || e.pointerId !== gg.id) return;
+            const dx = e.clientX - gg.sx, dy = e.clientY - gg.sy, len = Math.hypot(dx, dy);
+            const k = len > 38 ? 38 / len : 1;
+            gb.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+            gg.aim = len > 16 ? [dx / len, dy / len] : null;
+            gShow(gg.aim);
+        });
+        const gEnd = (e) => {
+            if (!gg || e.pointerId !== gg.id) return;
+            const s = gg; gg = null;
+            gb.classList.remove('down'); gb.style.transform = ''; gShow(null);
+            if (e.type === 'pointercancel' || !s.aim) return;           // a grab only fires when it was aimed, then released
+            this.act('grab', 'NEUTRAL', s.aim);
+        };
+        gb.addEventListener('pointerup', gEnd); gb.addEventListener('pointercancel', gEnd);
+
+        // ---------------------------------------------------------- shield: hold (no drag); joystick left / right while shielding = roll
         const sh = this.refs.shield;
         let sg = null;
         sh.addEventListener('pointerdown', (e) => {
             if (sg) return;
             e.preventDefault(); e.stopPropagation(); sh.setPointerCapture(e.pointerId);
-            sg = { id: e.pointerId, sx: e.clientX, sy: e.clientY, grabbed: false };
+            sg = { id: e.pointerId };
             sh.classList.add('down');
             virtual.shield = true; virtual.left = virtual.right = false; this.dirX = 0;
             this.api.heldChanged();
         });
-        sh.addEventListener('pointermove', (e) => {
-            if (!sg || e.pointerId !== sg.id) return;
-            const dx = e.clientX - sg.sx, dy = e.clientY - sg.sy, len = Math.hypot(dx, dy);
-            const k = len > 34 ? 34 / len : 1;
-            sh.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
-            if (!sg.grabbed && len > 44) {                                  // dragged: dash-grab that way
-                sg.grabbed = true;
-                virtual.shield = false; this.api.heldChanged();
-                const dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? [-1, 0] : [1, 0]) : (dy < 0 ? [0, -1] : [0, 1]);
-                this.me().isShielding = false;                              // drop the shield this instant so the grab can start
-                this.act('grab', 'NEUTRAL', dir);
-            }
-        });
-        const shEnd = () => {
-            if (!sg) return;
-            sg = null; sh.classList.remove('down'); sh.style.transform = '';
+        const shEnd = (e) => {
+            if (!sg || (e && e.pointerId !== sg.id)) return;
+            sg = null; sh.classList.remove('down');
             virtual.shield = false; this.api.heldChanged();
         };
         sh.addEventListener('pointerup', shEnd); sh.addEventListener('pointercancel', shEnd);

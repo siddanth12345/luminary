@@ -6,6 +6,7 @@
 // ============================================================================
 import { SoundEngine } from './audio.js';
 import { isDown } from './controls.js';
+import { ITEM_TYPES } from './items.js';
 
 export const S = { screenShake: 0, gameMode: 'hard', gameState: 'start', online: null };   // online: null | 'host' | 'guest'
 export const audio = new SoundEngine();
@@ -87,8 +88,11 @@ export function setArena(kind) {
 
 // ----------------------------------------------------------------- tuning (frames @ 60 Hz)
 export const ATTACK_FRAMES = 18;
-const LOCK = 42;              // 0.7 s: after ANY move you can't start another one (you can still walk)
-const JUMP_OK = 24;           // ...but you may jump once 0.3 s of that lock has passed (42 - 18)
+const LOCK = 36;              // 0.6 s: after ANY move you can't start another one (you can still walk)
+const JUMP_OK = 24;           // ...but you may jump once 0.2 s of that lock has passed (36 - 12)
+const MELEE_CHARGE_MAX = 102; // 1.7 s to fully charge a held side / up / down melee
+const MELEE_CHARGE_BONUS = 0.3;   // fully charged = +30% damage and knockback
+const GRAB_KB_SCALE = 0.7;    // a grab throw is worth 0.7x a melee hit (percent based)
 const STUN = 30;              // 0.5 s stun
 const FREEZE = 18;            // 0.3 s "getting up" after a headbutt
 const SUPLEX_DETECT = 0.45;    // suplex homing radius, as a fraction of the stage length
@@ -116,6 +120,20 @@ let dramaticZoom = {
     targetZoom: 3.5,
     progress: 0
 };
+
+/** a press that arrived while the fighter was still locked is kept for a few frames so it fires the instant it can (responsiveness) */
+export const inputBuf = { a: null, t: 0, wx: 0, wy: 0, dir: 'NEUTRAL', hold: false };
+export function bufferInput(a, extra = {}) { Object.assign(inputBuf, { a, t: 9, wx: 0, wy: 0, dir: 'NEUTRAL', hold: false }, extra); }
+function flushBuffered() {
+    const b = inputBuf;
+    if (!b.a) return;
+    if (--b.t < 0 || S.online === 'guest') { b.a = null; return; }
+    let ok = false;
+    if (b.a === 'attack') ok = p1.attack(b.dir, b.hold);
+    else if (b.a === 'grab') ok = p1.executeGrabDash(b.wx, b.wy);
+    else if (b.a === 'jump') ok = p1.jump();
+    if (ok) b.a = null;
+}
 
 const keys = {};
 const mouse = {
@@ -195,15 +213,16 @@ const arc = (r, a0, a1) => (k, f) => {
     return { x: f * Math.cos(a) * r, y: -Math.sin(a) * r };
 };
 const SWING = {
-    JAB:  { type: 'J', a: 3, b: 9,  w: 65, h: 58, damage: 6,  bkb: 8,  kbg: 1.2,  path: (k, f) => ({ x: f * (24 + 40 * k), y: -2 }),
-            angle: (f) => f === 1 ? -Math.PI / 4 : Math.PI + Math.PI / 4 },
-    UP:   { type: 'J', a: 4, b: 11, w: 75, h: 55, damage: 8,  bkb: 12, kbg: 1.25, path: arc(56, 10, 150),
+    // neutral melee: a sword spin around the body (both sides, air and ground) that only launches UP
+    JAB:  { type: 'J', a: 5, b: 15, w: 150, h: 74, damage: 7, bkb: 13, kbg: 1.05, multi: true, path: () => ({ x: 0, y: -4 }),
             angle: () => -Math.PI / 2 },
-    DOWN: { type: 'J', a: 4, b: 11, w: 75, h: 55, damage: 9,  bkb: 13, kbg: 1.25, path: arc(54, 25, -110),
+    UP:   { type: 'J', a: 4, b: 11, w: 75, h: 55, damage: 8,  bkb: 12, kbg: 1.25, chargeable: true, path: arc(56, 10, 150),
+            angle: () => -Math.PI / 2 },
+    DOWN: { type: 'J', a: 4, b: 11, w: 75, h: 55, damage: 9,  bkb: 13, kbg: 1.25, chargeable: true, path: arc(54, 25, -110),
             angle: (f, grounded) => grounded ? -Math.PI / 3 : Math.PI / 2 },
-    SIDE_LEFT:  { type: 'J', a: 5, b: 12, w: 70, h: 62, damage: 10, bkb: 12, kbg: 1.25, path: arc(64, 70, -20),
+    SIDE_LEFT:  { type: 'J', a: 5, b: 12, w: 70, h: 62, damage: 10, bkb: 12, kbg: 1.25, chargeable: true, path: arc(64, 70, -20),
             angle: () => Math.PI + Math.PI / 6 },
-    SIDE_RIGHT: { type: 'J', a: 5, b: 12, w: 70, h: 62, damage: 10, bkb: 12, kbg: 1.25, path: arc(64, 70, -20),
+    SIDE_RIGHT: { type: 'J', a: 5, b: 12, w: 70, h: 62, damage: 10, bkb: 12, kbg: 1.25, chargeable: true, path: arc(64, 70, -20),
             angle: () => -Math.PI / 6 },
     BLINK: { type: 'BLINK', a: 1, b: 9, w: 110, h: 72, damage: 11, bkb: 11, kbg: 1.2, path: (k, f) => ({ x: f * (30 + 70 * k), y: 0 }),
             angle: (f) => f === 1 ? -Math.PI / 5 : Math.PI + Math.PI / 5 },
@@ -265,7 +284,14 @@ class Fighter {
         this.hangSide = 0;
 
         this.canGrab = true;
-
+        this.heldItem = null;                // item in hand (host only; guests read `heldId`)
+        this.heldId = 0;
+        this.balloon = false;                // balloon item: 7 jumps until knocked out
+        this.kills = 0;                      // timer matches: score
+        this.deaths = 0;
+        this.lastHitBy = null;               // for kill credit
+        this.lastHitT = 9999;
+        this._acc = 0; this._since = 0; this._slowK = 1; this._upd = true;   // clock time bubble
 
         this.isShielding = false;
         this.shieldHealth = 100;
@@ -315,6 +341,11 @@ class Fighter {
         this.aiChargeGoal = 0;
         this.swing = null;                   // current J / Blink swing profile
         this.swingHit = false;
+        this.swingHitSet = null;             // spin attack: who it already hit
+        this.attackHeld = false;             // melee button still held: charging a side / up / down swing
+        this.meleeCharge = 0;                // frames charged (0..MELEE_CHARGE_MAX)
+        this.suplexAng = 0;                  // backflip angle during a suplex (radians)
+        this.landFlipT = 0;                  // landing recovery of the suplex backflip
         this.spiralT = 0;
         this.suplexT = 0;                    // > 0 while carrying an opponent in a suplex
         this.suplexN = 0;
@@ -342,7 +373,9 @@ class Fighter {
         this.y = STAGE.y - 300;
         this.vx = 0;
         this.vy = 0;
-        this.damage = (fullReset && S.match) ? S.match.startDamage : 0;    // custom match: choose the starting damage
+        this.damage = S.match ? S.match.startDamage : 0;    // custom match: you start AND respawn with the chosen starting damage
+        this.dropHeld();
+        this.balloon = false; this.maxJumps = 4;
         this.jumpsLeft = this.maxJumps;
         this.isHanging = false;
         this.canGrab = true;
@@ -370,6 +403,7 @@ class Fighter {
         if (fullReset) {
             this.stocks = S.match ? S.match.stocks : 3;
             this.out = false;
+            this.kills = 0; this.deaths = 0; this.lastHitBy = null; this.lastHitT = 9999;
         }
     }
 
@@ -381,7 +415,7 @@ class Fighter {
             this.isShielding || this.fActive || this.spiralT > 0 || this.suplexT > 0 || this.diving;
     }
     canShield() {
-        return this.actionLock <= 0 && !this.fActive && this.spiralT === 0 && this.suplexT === 0 && !this.diving &&
+        return this.actionLock <= 0 && !this.attackHeld && !this.fActive && this.spiralT === 0 && this.suplexT === 0 && !this.diving &&
             !this.isRolling && this.freezeTimer === 0;
     }
     setMove(type, frames) { this.activeMove = { type, t: frames }; }
@@ -389,7 +423,7 @@ class Fighter {
     /** being hit / countered cancels whatever the fighter was doing */
     interrupt() {
         this.fActive = false; this.chargeFrames = 0; this.aiChargeGoal = 0;
-        this.swing = null; this.attackTimer = 0; this.activeHitbox = null;
+        this.swing = null; this.attackTimer = 0; this.activeHitbox = null; this.attackHeld = false; this.meleeCharge = 0;
         this.releaseSuplexVictim();
         this.spiralT = 0; this.suplexT = 0; this.suplexPending = false; this.diving = false;
         this.specialKind = null; this.specialDur = 0; this.specialT = 0;
@@ -405,6 +439,8 @@ class Fighter {
         }
 
         if (this.invincibleTimer > 0) this.invincibleTimer--;
+        if (this.lastHitT < 9999) this.lastHitT++;
+        if (this.landFlipT > 0) this.landFlipT--;
         if (this.actionLock > 0) this.actionLock--;
         if (this.rollCooldown > 0) this.rollCooldown--;
         if (this.ledgeBan > 0) this.ledgeBan--;
@@ -482,9 +518,10 @@ class Fighter {
             this.vx = 0;
             this.vy = 0;
             const g = this.grabbedBy;
-            if (g.suplexT > 0) {                  // carried overhead during a suplex
-                this.x = g.x + g.facing * 8;
-                this.y = g.y - 46;
+            if (g.suplexT > 0) {                  // carried round the backflip: overhead -> behind -> underneath
+                const a = g.suplexAng || 0;
+                this.x = g.x - g.facing * 46 * Math.sin(a);
+                this.y = g.y - 46 * Math.cos(a);
             } else {
                 this.x = g.x + (g.facing * 35);
                 this.y = g.y;
@@ -520,11 +557,12 @@ class Fighter {
                 }
 
                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                const throwSpeed = 17.5;
+                const throwSpeed = grabThrowSpeed(target);          // 0.7x a melee hit, grows with the victim's percent
                 target.vx = (dx / dist) * throwSpeed;
                 target.vy = (dy / dist) * throwSpeed;
                 target.hitstun = 60;
                 target.grounded = false;
+                target.lastHitBy = this; target.lastHitT = 0;
 
                 audio.playThrow();
                 this.throwFxT = 14;
@@ -596,10 +634,18 @@ class Fighter {
         if (this.diving && this.grounded) this.diveImpact();
 
         if (this.attackTimer > 0) {
-            this.attackTimer--;
-            if (this.attackTimer === 0 && this.swing) {
-                this.swing = null;
-                this.activeHitbox = null;
+            const sw = this.swing;
+            if (this.attackHeld && sw && sw.chargeable && ATTACK_FRAMES - this.attackTimer >= sw.a - 1) {
+                // button still held at the wind-up: the swing waits there, charging (up to 1.7 s)
+                this.actionLock = Math.max(this.actionLock, LOCK - sw.a + 1);
+                if (this.meleeCharge < MELEE_CHARGE_MAX) this.meleeCharge++;   // stays fully charged until you let go
+            } else {
+                this.attackTimer--;
+                if (this.attackTimer === 0 && this.swing) {
+                    this.swing = null;
+                    this.activeHitbox = null;
+                    this.attackHeld = false; this.meleeCharge = 0;
+                }
             }
         }
         this.updateSwing();
@@ -621,9 +667,13 @@ class Fighter {
         }
         const k = (e - sw.a) / Math.max(1, sw.b - sw.a);
         const p = sw.path(k, this.facing);
+        const cm = 1 + MELEE_CHARGE_BONUS * (this.meleeCharge / MELEE_CHARGE_MAX);          // charged swing: up to +30%
+        const fl = this.heldItem && this.heldItem.type === 'FIRESTICK' ? this.heldItem.len : 1;   // firestick: longer reach
+        const reach = 1 + (fl - 1) * 0.6;
         this.activeHitbox = {
-            x: this.x + p.x, y: this.y + p.y, w: sw.w, h: sw.h,
-            damage: sw.damage, bkb: sw.bkb, kbg: sw.kbg, angle: sw.angle(this.facing, this.grounded), type: sw.type,
+            x: this.x + p.x * reach, y: this.y + p.y * reach, w: sw.w * fl, h: sw.h * (1 + (fl - 1) * 0.35),
+            damage: sw.damage * cm, bkb: sw.bkb * cm, kbg: sw.kbg * cm, angle: sw.angle(this.facing, this.grounded), type: sw.type,
+            multi: !!sw.multi, fire: fl > 1,
         };
         if (sw.type === 'J') this.setMove('J', 2);            // J only counters while its swing is live
     }
@@ -830,6 +880,7 @@ class Fighter {
         d.grabbedBy = this;
         d.hitstun = 90;
         this.suplexT = 1; this.suplexN = 0; this.suplexPhase = 'rise';
+        this.suplexAng = 0;
         this.grabVictim = d;
         this.specialKind = 'SUPLEX'; this.specialT = 0; this.specialDur = 999;
         this.activeMove = null;
@@ -846,8 +897,11 @@ class Fighter {
         const d = this.grabVictim;
         if (!d || d.grabbedBy !== this) { this.endSuplex(); return; }
         this.suplexN++;
+        // a backwards half backflip: hop up and back while rotating, the victim is carried round with you
         if (this.suplexPhase === 'rise') {
-            this.vy = -15; this.vx = this.facing * 2.5;
+            const u = Math.min(1, this.suplexN / SUPLEX_RISE);
+            this.vy = -13.5 * (1 - u * 0.6); this.vx = -this.facing * 3.2;
+            this.suplexAng = Math.PI * 0.62 * u * u * (3 - 2 * u);
             this.x += this.vx; this.y += this.vy;
             if (this.y < TOP_LIMIT) {                          // reached the top of the map: cancel
                 this.endSuplex();
@@ -856,7 +910,9 @@ class Fighter {
             }
             if (this.suplexN >= SUPLEX_RISE) { this.suplexPhase = 'slam'; this.suplexN = 0; }
         } else {
-            this.vy = 26; this.vx = -this.facing * 2;
+            const u = Math.min(1, this.suplexN / 9);
+            this.vy = Math.min(26, 6 + this.suplexN * 2.6); this.vx = -this.facing * 2.2;
+            this.suplexAng = Math.PI * (0.62 + 0.38 * u);
             this.x += this.vx; this.y += this.vy;
             this.checkStageCollision();
             if (this.grounded) { this.suplexImpact(d); return; }
@@ -871,6 +927,7 @@ class Fighter {
         d.x = this.x - this.facing * 34;
         d.y = this.y;
         this.vx = 0; this.vy = 0;
+        this.suplexAng = 0; this.landFlipT = 12;               // the backflip finishes with a quick landing roll
         fx('stomp', this.x, this.y + this.height / 2, STAGE.width / 8, 0);
         S.screenShake = Math.max(S.screenShake, 16);
         launch(this, d, {
@@ -880,7 +937,7 @@ class Fighter {
     }
     endSuplex() {
         this.releaseSuplexVictim();
-        this.suplexT = 0;
+        this.suplexT = 0; this.suplexAng = 0;
         this.specialKind = null; this.specialDur = 0;
         this.vx = 0; this.vy = 0;
     }
@@ -1067,9 +1124,9 @@ class Fighter {
     }
 
     jump() {
-        if (this.hitstun > 0 || this.isShielding || this.dizzyTimer > 0 || this.clashStunTimer > 0 || this.grabbedBy || this.grabHolding || this.isRolling) return;
-        if (this.freezeTimer > 0 || this.suplexT > 0 || this.diving || this.spiralT > 0) return;
-        if (this.actionLock > JUMP_OK) return;                // 0.3 s after a move you may jump again
+        if (this.hitstun > 0 || this.isShielding || this.dizzyTimer > 0 || this.clashStunTimer > 0 || this.grabbedBy || this.grabHolding || this.isRolling) return false;
+        if (this.freezeTimer > 0 || this.suplexT > 0 || this.diving || this.spiralT > 0) return false;
+        if (this.actionLock > JUMP_OK) return false;                // 0.3 s after a move you may jump again
 
         if (this.isHanging) {
             this.isHanging = false;
@@ -1079,7 +1136,7 @@ class Fighter {
             this.canGrab = true;
             audio.playJump();
             createParticles(this.x, this.y, '#38bdf8', 10);
-            return;
+            return true;
         }
 
         if (this.grounded) {
@@ -1094,9 +1151,12 @@ class Fighter {
             audio.playJump();
             createParticles(this.x, this.y + this.height/2, '#06b6d4', 10);
         }
+        else return false;
+        return true;
     }
 
     executeGrabDash(targetWorldX, targetWorldY) {
+        if (this.heldItem && !this.actionBlocked()) return throwHeldItem(this, targetWorldX, targetWorldY);   // aimed grab with an item = throw it
         if (!this.canGrab || this.actionBlocked()) return false;
 
         const dx = targetWorldX - this.x;
@@ -1120,7 +1180,7 @@ class Fighter {
 
 
     /** The "J" attack (now on right click / the aim-matrix attack). The hitbox follows the animation. */
-    attack(aimDirection) {
+    attack(aimDirection, hold = false) {
         if (this.attackTimer > 0 || this.actionBlocked()) return false;
 
         let kind = 'JAB';
@@ -1135,10 +1195,21 @@ class Fighter {
         this.attackTimer = ATTACK_FRAMES;
         this.swing = SWING[kind];
         this.swingHit = false;
+        this.swingHitSet = this.swing.multi ? new Set() : null;
+        this.attackHeld = !!(hold && this.swing.chargeable);
+        this.meleeCharge = 0;
         this.activeHitbox = null;
         this.actionLock = LOCK;
         audio.playHit(false);
         return true;
+    }
+    /** melee button released: a charging swing is let go */
+    releaseAttack() { this.attackHeld = false; }
+
+    /** drop (and destroy) whatever item is in hand */
+    dropHeld() {
+        if (this.heldItem) { this.heldItem.st = 'dead'; this.heldItem.holder = null; }
+        this.heldItem = null; this.heldId = 0;
     }
 
     takeKO() {
@@ -1147,7 +1218,14 @@ class Fighter {
             return;
         }
 
-        this.stocks--;
+        const timerMode = !!(S.match && S.match.mode === 'timer');
+        if (!timerMode) this.stocks--;
+        this.deaths++;
+        if (S.online !== 'guest') {                         // kill credit: whoever hit this fighter in the last 6 s (self-KO costs a point)
+            const k = this.lastHitBy;
+            if (k && k !== this && this.lastHitT < 360) k.kills++; else if (timerMode) this.kills = Math.max(-99, this.kills - 1);
+        }
+        this.lastHitBy = null; this.lastHitT = 9999;
         audio.playKO();
         createExplosion(this.x, this.y);
         fx('ko', this.x, this.y);
@@ -1162,6 +1240,7 @@ class Fighter {
             width: 32
         });
 
+        if (timerMode) { this.reset(false); return; }      // timer match: nobody is ever eliminated
         if (this.stocks <= 0 && S.match) {                 // custom match: out of the game, the match may be over
             this.out = true; this.vx = 0; this.vy = 0; this.isShielding = false; this.fActive = false;
             if (S.online !== 'guest') checkMatchEnd();
@@ -1317,6 +1396,15 @@ class AIBot extends Fighter {
                 this.fRelease('NEUTRAL', target.x + target.vx * lead, target.y + target.vy * lead * 0.5);
             }
             return;
+        }
+
+        if (items.length && this.actionTimer % 18 === 0 && !this.grabHolding) {      // use items: throw what we hold, chase what lies near
+            if (this.heldItem) {
+                if (dist < 650 && Math.random() < (this.level === 'easy' ? 0.15 : 0.5) && this.executeGrabDash(target.x, target.y)) return;
+            } else if (this.canGrab && this.level !== 'easy') {
+                const it = items.find(i => i.st === 'idle' && Math.hypot(i.x - this.x, i.y - this.y) < 420 && Math.abs(i.y - this.y) < 200);
+                if (it && Math.random() < 0.6 && this.executeGrabDash(it.x, it.y)) return;
+            }
         }
 
         if (this.level === 'easy') {
@@ -1504,6 +1592,217 @@ const isAlive = (f) => f.active && !f.out;
 const foesOf = (f) => fighters.filter(o => o !== f && isAlive(o) && !(S.match && S.match.teams && f.team && o.team === f.team));
 const nearestOf = (f, list) => list.reduce((b, o) => (!b || Math.hypot(o.x - f.x, o.y - f.y) < Math.hypot(b.x - f.x, b.y - f.y)) ? o : b, null);
 
+
+// ============================================================================
+//  Items (custom matches): Ball, Strawberry, Balloon, Firestick, Clock
+//  Picked up and used with an AIMED GRAB (the grab dash touches the item). Balloon is used with jump.
+// ============================================================================
+export const items = [];
+let itemSerial = 0;
+const ITEM_R = { BALL: 24, STRAWBERRY: 22, BALLOON: 26, FIRESTICK: 22, CLOCK: 26 };
+const CLOCK_RADIUS = 760;               // diameter 1520 = 0.4 x the ORIGINAL 3800-wide map (it does not grow with the big arena)
+const CLOCK_SLOW = 0.3;
+const CLOCK_ARM = 60;                   // 1 s after the throw the bubble starts
+const CLOCK_LIFE = 900;                 // despawns 15 s after being thrown
+const REST_LIFE = { BALL: 3600, STRAWBERRY: 1800, BALLOON: 1800, FIRESTICK: 1800, CLOCK: 1800 };
+const STICK_MAX_LEN = 5;
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function spawnItem(type) {
+    const x = STAGE.x + 140 + Math.random() * (STAGE.width - 280);
+    const y = STAGE.y - (S.arena === 'lobby' ? 1000 : 650);
+    items.push({ id: ++itemSerial, type, x, y, py: y, vx: 0, vy: 0, r: ITEM_R[type], st: 'idle', age: 0, rest: 0, owner: null, grace: 0,
+        rot: 0, spin: 0, hold: -1, hitCool: 0, throws: 0, len: STICK_MAX_LEN, reductions: 0, act: false, armed: false, tT: 0, holder: null });
+    fx('pickup', x, y);
+}
+
+/** 0.3 inside an active clock bubble, 1 elsewhere */
+function slowAt(x, y) {
+    for (const it of items) if (it.type === 'CLOCK' && it.act && Math.hypot(it.x - x, it.y - y) < CLOCK_RADIUS) return CLOCK_SLOW;
+    return 1;
+}
+
+function burnItem(it) {
+    it.reductions++;
+    it.len = STICK_MAX_LEN - 0.5 * it.reductions;
+    fx('burn', it.x, it.y);
+    if (it.reductions >= 6) { it.st = 'dead'; if (it.holder) { it.holder.heldItem = null; it.holder.heldId = 0; it.holder = null; } }
+}
+function burnStick(f) { if (f.heldItem && f.heldItem.type === 'FIRESTICK') burnItem(f.heldItem); }
+
+function pickUp(f, it) {
+    if (it.type === 'STRAWBERRY') {
+        f.damage = Math.max(0, f.damage - 30);
+        fx('heal', f.x, f.y); audio.playGrab(); it.st = 'dead'; return true;
+    }
+    if (it.type === 'BALLOON') {
+        if (!f.balloon) { f.balloon = true; f.maxJumps = 7; f.jumpsLeft = Math.min(7, f.jumpsLeft + 3); }
+        fx('pickup', f.x, f.y - 30); audio.playGrab(); it.st = 'dead'; return true;
+    }
+    if (f.heldItem) return false;
+    it.st = 'held'; it.holder = f; it.hold = f.slot; it.armed = false; it.tT = 0; it.vx = it.vy = 0; it.grace = 0;
+    f.heldItem = it; f.heldId = it.id;
+    f.isGrabDashing = false; f.suplexPending = false; f.vx *= 0.2; f.vy *= 0.2;
+    fx('pickup', it.x, it.y); audio.playGrab();
+    return true;
+}
+
+function throwHeldItem(f, tx, ty) {
+    const it = f.heldItem; if (!it) return false;
+    let dx = tx - f.x, dy = ty - f.y; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    if (Math.abs(dx) > 0.15) f.facing = dx > 0 ? 1 : -1;
+    const sp = it.type === 'CLOCK' ? 15 : it.type === 'FIRESTICK' ? 17 : 19;
+    it.st = 'thrown'; it.holder = null; it.hold = -1; it.owner = f; it.grace = 16; it.hitCool = 0; it.rest = 0;
+    it.x = f.x + dx * 40; it.y = f.y + dy * 40 - 4; it.py = it.y; it.vx = dx * sp; it.vy = dy * sp;
+    it.spin = (dx >= 0 ? 1 : -1) * (it.type === 'FIRESTICK' ? 0.5 : it.type === 'BALL' ? 0.3 : 0.15);
+    if (it.type === 'BALL') it.throws++;
+    if (it.type === 'CLOCK') { it.armed = true; it.tT = 0; }
+    f.heldItem = null; f.heldId = 0;
+    f.actionLock = Math.max(f.actionLock, 18); f.throwFxT = 14;
+    audio.playThrow();
+    return true;
+}
+
+function landOn(it) {
+    const bottom = it.y + it.r, prevBottom = it.py + it.r;
+    if (it.x > STAGE.x - 6 && it.x < STAGE.x + STAGE.width + 6 && prevBottom <= STAGE.y + 4 && bottom >= STAGE.y) { it.y = STAGE.y - it.r; return true; }
+    if (it.vy >= 0) for (const p of STAGE.platforms) {
+        if (it.x > p.x && it.x < p.x + p.w && prevBottom <= p.y + 4 && bottom >= p.y) { it.y = p.y - it.r; return true; }
+    }
+    return false;
+}
+
+function updateItems() {
+    const cfg = S.match && S.match.items;
+    if (cfg && cfg.on && cfg.types.length && S.gameState === 'playing') {
+        if (--S.itemTimer <= 0) {
+            S.itemTimer = Math.max(60, cfg.interval * 60);
+            if (items.filter(i => i.st !== 'held' && i.st !== 'dead').length < 4) spawnItem(cfg.types[Math.floor(Math.random() * cfg.types.length)]);
+        }
+    }
+    for (let n = items.length - 1; n >= 0; n--) {
+        const it = items[n];
+        if (it.st === 'dead') { if (it.holder) { it.holder.heldItem = null; it.holder.heldId = 0; } items.splice(n, 1); continue; }
+        it.age++;
+        if (it.st === 'held') {
+            const h = it.holder;
+            if (!h || !isAlive(h) || h.heldItem !== it) { it.st = 'idle'; it.holder = null; it.hold = -1; it.vx = 0; it.vy = 0; continue; }
+            it.x = h.x + h.facing * 30; it.y = h.y - 2; it.py = it.y;
+            continue;
+        }
+        if (it.type === 'CLOCK' && it.armed) {                       // the thrown clock: bubble after 1 s, gone after 15 s
+            it.tT++;
+            if (!it.act && it.tT >= CLOCK_ARM) { it.act = true; it.st = 'zone'; it.vx = 0; it.vy = 0; fx('bubble', it.x, it.y, CLOCK_RADIUS); audio.playShield(); }
+            if (it.tT >= CLOCK_LIFE) { it.st = 'dead'; continue; }
+        }
+        if (it.st === 'zone') continue;                              // frozen where it started the bubble
+        const k = it.type === 'CLOCK' ? 1 : slowAt(it.x, it.y);
+        it.py = it.y;
+        if (it.grace > 0) it.grace--;
+        const thrown = it.st === 'thrown';
+        it.vy = Math.min(thrown ? 16 : 14, it.vy + WORLD.gravity * (thrown ? 0.55 : 1) * k);
+        it.x += it.vx * k; it.y += it.vy * k;
+        it.rot += (thrown ? it.spin : 0) * k;
+        // stage body: slide out sideways instead of tunnelling in
+        if (it.y > STAGE.y + 4 && it.y < STAGE.y + STAGE.height && it.x > STAGE.x - it.r && it.x < STAGE.x + STAGE.width + it.r) {
+            it.x = it.x < STAGE.x + STAGE.width / 2 ? STAGE.x - it.r : STAGE.x + STAGE.width + it.r; it.vx *= -0.5;
+        }
+        const landed = landOn(it);
+        if (landed) {
+            if (it.type === 'BALL' && thrown) {
+                it.vy = Math.abs(it.vy) > 2.5 ? -it.vy * 0.5 : 0;
+                it.vx *= 0.9;
+            } else { it.vy = 0; it.vx *= 0.8; }
+            if (it.vy === 0) it.vx *= (it.type === 'BALL' ? 0.94 : 0.8);
+        }
+        if (thrown) {
+            const sp = Math.hypot(it.vx, it.vy);
+            if (landed && (it.type !== 'BALL' || sp < 1.4)) {          // came to rest
+                it.st = it.type === 'CLOCK' && it.armed ? 'idle' : 'idle'; it.vx = 0; it.vy = 0; it.spin = 0;
+                if (it.type === 'BALL' && it.throws >= 2) { it.st = 'dead'; fx('pickup', it.x, it.y); continue; }   // second throw used up: it breaks
+            }
+        } else if (landed || it.vy === 0) {
+            if (!it.armed && ++it.rest > REST_LIFE[it.type]) { it.st = 'dead'; continue; }
+        }
+        if (it.x < BLAST_ZONES.left - 400 || it.x > BLAST_ZONES.right + 400 || it.y > BLAST_ZONES.bottom + 400 || it.y < BLAST_ZONES.top - 1600) it.st = 'dead';
+    }
+}
+
+/** grab-dash pickups and thrown ball / firestick hits */
+function itemInteractions() {
+    if (!items.length) return;
+    for (const f of fighters) {
+        if (!isAlive(f) || !f.isGrabDashing || f.suplexPending) continue;
+        for (const it of items) {
+            if ((it.st !== 'idle' && it.st !== 'thrown') || (it.st === 'thrown' && (it.type !== 'BALL' || it.owner === f))) continue;
+            if (Math.hypot(it.x - f.x, it.y - f.y) < 72 + it.r) { if (pickUp(f, it)) break; }
+        }
+    }
+    for (const it of items) {
+        if (it.st !== 'thrown' || (it.type !== 'BALL' && it.type !== 'FIRESTICK')) continue;
+        if (it.hitCool > 0) { it.hitCool--; continue; }
+        const speed = Math.hypot(it.vx, it.vy);
+        if (it.type === 'BALL' && speed < 2.5) continue;
+        const R = it.type === 'FIRESTICK' ? 26 + 14 * it.len : it.r;
+        for (const f of fighters) {
+            if (!isAlive(f)) continue;
+            if (it.owner && f === it.owner && it.grace > 0) continue;
+            if (it.owner && f !== it.owner && S.match && S.match.teams && f.team && f.team === it.owner.team) continue;
+            const hb = f.activeHitbox;
+            if (it.type === 'BALL' && hb && !(it.owner === f)) {                      // the ball counters every attack except a grab
+                if (Math.abs(hb.x - it.x) < hb.w / 2 + it.r && Math.abs(hb.y - it.y) < hb.h / 2 + it.r) {
+                    f.activeHitbox = null; f.swingHit = true;
+                    audio.playHit(true); fx('counter', it.x, it.y);
+                    counterStun(f, it);
+                    it.vx = (it.vx >= 0 ? -1 : 1) * Math.max(4, Math.abs(it.vx) * 0.6); it.vy = -5; it.hitCool = 10; it.grace = 0;
+                    break;
+                }
+            }
+            if (f.invincibleTimer > 0) continue;
+            const cx = clampN(it.x, f.x - f.width / 2, f.x + f.width / 2), cy = clampN(it.y, f.y - f.height / 2, f.y + f.height / 2);
+            if (Math.hypot(it.x - cx, it.y - cy) > R) continue;
+            if (it.type === 'BALL' && f.isGrabDashing && f !== it.owner) { pickUp(f, it); break; }   // grabbing the ball catches it
+            const dirx = it.vx >= 0 ? 1 : -1;
+            if (f.isShielding) {
+                audio.playShield(); f.shieldHealth = Math.max(0, f.shieldHealth - 10); fx('block', it.x, it.y);
+            } else {
+                launch(it.owner || f, f, { damage: it.type === 'BALL' ? 10 : 8, bkb: it.type === 'BALL' ? 8 : 10, kbg: it.type === 'BALL' ? 0.9 : 1.0, angle: dirx > 0 ? -0.5 : Math.PI + 0.5 });
+                if (it.type === 'FIRESTICK') burnItem(it);
+            }
+            it.vx = -dirx * Math.max(4, Math.abs(it.vx) * 0.6); it.vy = -6; it.hitCool = 14; it.grace = 0;      // bounces back
+            break;
+        }
+    }
+}
+
+/** timer matches: most kills wins (fewest deaths breaks a tie) */
+function finishTimer() {
+    if (!S.match || S.gameState !== 'playing') return;
+    const live = fighters.filter(f => f.active);
+    const keyOf = (f) => S.match.teams && f.team ? 't:' + f.team : 'p:' + f.slot;
+    const score = new Map(), deaths = new Map(), members = new Map();
+    for (const f of live) {
+        const k = keyOf(f);
+        score.set(k, (score.get(k) || 0) + f.kills); deaths.set(k, (deaths.get(k) || 0) + f.deaths);
+        if (!members.has(k)) members.set(k, []);
+        members.get(k).push(f);
+    }
+    let best = -Infinity, bestD = Infinity, winners = [];
+    for (const [k, sc] of score) {
+        const d = deaths.get(k);
+        if (sc > best || (sc === best && d < bestD)) { best = sc; bestD = d; winners = [k]; }
+        else if (sc === best && d === bestD) winners.push(k);
+    }
+    const wf = winners.flatMap(k => members.get(k) || []);
+    S.winnerSlots = wf.map(f => f.slot);
+    const draw = winners.length > 1;
+    const w = wf[0];
+    S.winnerLabel = draw ? 'DRAW' : (S.match.teams && w.team ? `${TEAM_NAMES[w.team]} TEAM` : String(w.name).toUpperCase());
+    S.iWon = !draw && S.winnerSlots.includes(S.mySlot || 0);
+    triggerDramaticZoom(w || p1);
+    endGame(draw ? 'DRAW!' : (S.iWon ? 'YOU WIN!' : `${S.winnerLabel} WINS!`), 'lobby');
+}
+
 // ============================================================================
 //  Combat resolution
 // ============================================================================
@@ -1540,10 +1839,20 @@ function handleBlocked(res, attacker, defender) {
     }
 }
 
+/** speed of a grab throw: 0.7x the knockback of a side melee hit at the victim's current percent */
+function grabThrowSpeed(victim) {
+    const m = SWING.SIDE_RIGHT;
+    const eff = victim.damage / 2;
+    const force = ((eff / 10) + (eff * m.damage / 20)) * m.kbg + m.bkb;
+    return force * 0.85 * GRAB_KB_SCALE;
+}
+
 /** apply damage + knockback / stun for a landed hit */
 function launch(attacker, defender, hb) {
     defender.interrupt();
     defender.damage += hb.damage;
+    defender.lastHitBy = attacker; defender.lastHitT = 0;
+    if (defender.heldItem && defender.heldItem.type === 'FIRESTICK') burnStick(defender);      // getting hit shortens the firestick
 
     if (defender.isAI && defender.level === 'hard') {
         defender.incomingHitCount++;
@@ -1632,9 +1941,10 @@ function explodeOrb(o) {
 function updateOrbs() {
     for (let i = orbs.length - 1; i >= 0; i--) {
         const o = orbs[i];
-        o.x += o.vx;
-        o.y += o.vy;
-        o.life--;
+        const ok = slowAt(o.x, o.y);
+        o.x += o.vx * ok;
+        o.y += o.vy * ok;
+        o.life -= ok;
 
         if (o.x < -600 || o.x > WORLD.width + 600 || o.y < -600 || o.y > WORLD.height + 600) { orbs.splice(i, 1); continue; }
 
@@ -1781,6 +2091,15 @@ function checkCombatCollisions(attacker, defender) {
 
     if (hbLeft < defRight && hbRight > defLeft && hbTop < defBottom && hbBottom > defTop) {
         const res = interaction(hb.type || 'J', defender);
+        if (hb.multi) {                                      // sword spin: hits everyone around you once, the swing carries on
+            const set = attacker.swingHitSet || (attacker.swingHitSet = new Set());
+            if (set.has(defender)) return;
+            set.add(defender);
+            if (res !== 'hit') { handleBlocked(res, attacker, defender); return; }
+            launch(attacker, defender, hb);
+            if (hb.fire) burnStick(attacker);
+            return;
+        }
         attacker.activeHitbox = null;
         attacker.swingHit = true;
         if (res !== 'hit') {
@@ -1788,6 +2107,7 @@ function checkCombatCollisions(attacker, defender) {
             return;
         }
         launch(attacker, defender, hb);
+        if (hb.fire) burnStick(attacker);
     }
 }
 
@@ -1800,35 +2120,52 @@ function renderRoster() {
         el.style.cssText = 'position:fixed;right:12px;top:64px;z-index:12;display:flex;flex-direction:column;gap:4px;pointer-events:none;font:700 12px system-ui,sans-serif;color:#e2e8f0';
         document.body.appendChild(el);
     }
+    let tm = document.getElementById('matchTimer');
+    if (!tm) {
+        tm = document.createElement('div'); tm.id = 'matchTimer';
+        tm.style.cssText = 'position:fixed;left:50%;top:44px;transform:translateX(-50%);z-index:13;pointer-events:none;font:800 22px system-ui,sans-serif;letter-spacing:.08em;color:#e2e8f0;background:rgba(8,12,24,.72);border:1px solid rgba(148,163,184,.35);padding:2px 14px;border-radius:12px;display:none';
+        document.body.appendChild(tm);
+    }
     const lbl = document.getElementById('aiDiffLabel');
     const aiPanel = lbl && lbl.closest('.glass-panel');
-    if (aiPanel) aiPanel.style.visibility = S.match ? 'hidden' : '';
-    if (!S.match || S.gameState === 'start') { el.style.display = 'none'; return; }
+    if (aiPanel) { const v = S.match ? 'hidden' : ''; if (aiPanel.style.visibility !== v) aiPanel.style.visibility = v; }
+    if (!S.match || S.gameState === 'start') { if (el.style.display !== 'none') el.style.display = 'none'; tm.style.display = 'none'; return; }
     el.style.display = 'flex';
+    const timer = S.match.mode === 'timer';
+    if (timer) {
+        const sec = Math.max(0, Math.ceil((S.timeLeft || 0) / 60));
+        const txt = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+        tm.style.display = 'block';
+        if (tm.textContent !== txt) tm.textContent = txt;
+        tm.style.color = sec <= 10 ? '#fb7185' : '#e2e8f0';
+    } else tm.style.display = 'none';
     const rows = fighters.filter(f => f.active).map(f => {
-        const pips = f.out ? 'OUT' : '●'.repeat(Math.max(0, f.stocks));
+        const pips = timer ? 'K ' + f.kills : (f.out ? 'OUT' : '●'.repeat(Math.max(0, f.stocks)));
         const nm = String(f.name).replace(/[<>&"]/g, '');
         return `<div style="display:flex;gap:8px;align-items:center;background:rgba(8,12,24,.72);border-left:4px solid ${f.color};padding:4px 8px;border-radius:8px;min-width:190px;opacity:${f.out ? .45 : 1}${f.slot === (S.mySlot || 0) ? ';outline:1px solid #fff6' : ''}"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nm}</span><span style="color:${f.damage > 120 ? '#fb7185' : f.damage > 60 ? '#fbbf24' : '#fff'}">${Math.floor(f.damage)}%</span><span style="color:${f.color};letter-spacing:1px">${pips}</span></div>`;
     }).join('');
     if (rows !== rosterKey) { rosterKey = rows; el.innerHTML = rows; }
 }
 
+// HUD writes are cached: touching the DOM every frame was a source of lag
+const hudCache = {};
+function hudText(id, v) { const k = 't' + id; if (hudCache[k] !== v) { hudCache[k] = v; document.getElementById(id).textContent = v; } }
+function hudClass(id, v) { const k = 'c' + id; if (hudCache[k] !== v) { hudCache[k] = v; document.getElementById(id).className = v; } }
+const dmgClass = (d) => d > 120 ? 'smash-font text-5xl font-bold tracking-tight text-rose-500 pulse-glow-red leading-none' : d > 60 ? 'smash-font text-5xl font-bold tracking-tight text-amber-400 leading-none' : 'smash-font text-5xl font-bold tracking-tight text-white leading-none';
+function hudPips(id, n, cls) {
+    const key = 'p' + id + ':' + n;
+    if (hudCache['k' + id] === key) return;
+    hudCache['k' + id] = key;
+    const box = document.getElementById(id);
+    box.innerHTML = Array.from({ length: n }, () => `<div class="${cls}"></div>`).join('');
+}
+
 function renderHUD() {
     const me = S.match ? (fighters[S.mySlot || 0] || p1) : p1;
     renderRoster();
-    document.getElementById('p1Damage').textContent = Math.floor(me.damage);
-    const p1DamageElem = document.getElementById('p1Damage');
-    if (me.damage > 120) p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-rose-500 pulse-glow-red leading-none";
-    else if (me.damage > 60) p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-amber-400 leading-none";
-    else p1DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-white leading-none";
-
-    const p1StocksContainer = document.getElementById('p1Stocks');
-    p1StocksContainer.innerHTML = '';
-    for (let i = 0; i < me.stocks; i++) {
-        const pip = document.createElement('div');
-        pip.className = 'w-3.5 h-3.5 rounded-full bg-cyan-400 border border-cyan-200 shadow-md shadow-cyan-500/50';
-        p1StocksContainer.appendChild(pip);
-    }
+    hudText('p1Damage', String(Math.floor(me.damage)));
+    hudClass('p1Damage', dmgClass(me.damage));
+    hudPips('p1Stocks', Math.max(0, me.stocks), 'w-3.5 h-3.5 rounded-full bg-cyan-400 border border-cyan-200 shadow-md shadow-cyan-500/50');
 
     // F-special status: charge meter while charging, otherwise how many air F moves are left
     const fAnchor = document.querySelector('#p1DashBadge, #p1FAnchor');
@@ -1837,44 +2174,26 @@ function renderHUD() {
         fBadge.id = 'p1FBadge';
         fBadge.style.marginLeft = '6px';
         fAnchor.insertAdjacentElement('afterend', fBadge);
+        fBadge.style.whiteSpace = 'nowrap';
     }
     if (fBadge) {
-        fBadge.style.color = me.charging ? '#ddd6fe' : (!me.grounded && me.airSpecials >= AIR_F_MAX ? '#64748b' : '#c4b5fd');
-        fBadge.style.whiteSpace = 'nowrap';
-        if (me.charging) {
-            fBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-950 text-violet-300 border border-violet-500/60';
-            fBadge.textContent = `CORE ${Math.min(100, Math.round(me.chargeFrames / CHARGE_MAX * 100))}%`;
-        } else if (!me.grounded && me.airSpecials >= AIR_F_MAX) {
-            fBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900 text-slate-500 border border-slate-700';
-            fBadge.textContent = 'AIR F: 0 LEFT';
-        } else {
-            fBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-950 text-violet-300 border border-violet-500/40';
-            fBadge.textContent = `AIR F: ${AIR_F_MAX - me.airSpecials}/${AIR_F_MAX}`;
-        }
+        let cls, txt, col;
+        if (me.charging) { col = '#ddd6fe'; cls = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-950 text-violet-300 border border-violet-500/60'; txt = `CORE ${Math.min(100, Math.round(me.chargeFrames / CHARGE_MAX * 100))}%`; }
+        else if (!me.grounded && me.airSpecials >= AIR_F_MAX) { col = '#64748b'; cls = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-900 text-slate-500 border border-slate-700'; txt = 'AIR F: 0 LEFT'; }
+        else { col = '#c4b5fd'; cls = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-950 text-violet-300 border border-violet-500/40'; txt = `AIR F: ${AIR_F_MAX - me.airSpecials}/${AIR_F_MAX}`; }
+        const key = cls + txt + col;
+        if (hudCache.fb !== key) { hudCache.fb = key; fBadge.className = cls; fBadge.textContent = txt; fBadge.style.color = col; }
     }
 
-    const jumpContainer = document.getElementById('p1JumpDots');
-    jumpContainer.innerHTML = '';
-    for (let i = 0; i < me.maxJumps; i++) {
-        const dot = document.createElement('div');
-        dot.className = `w-2.5 h-2.5 rounded-full ${i < me.jumpsLeft ? 'bg-cyan-400' : 'bg-slate-700'}`;
-        jumpContainer.appendChild(dot);
+    const jk = 'j' + me.maxJumps + ':' + me.jumpsLeft;
+    if (hudCache.jk !== jk) {
+        hudCache.jk = jk;
+        document.getElementById('p1JumpDots').innerHTML = Array.from({ length: me.maxJumps }, (_, i) => `<div class="w-2.5 h-2.5 rounded-full ${i < me.jumpsLeft ? 'bg-cyan-400' : 'bg-slate-700'}"></div>`).join('');
     }
 
-    document.getElementById('p2Damage').textContent = Math.floor(p2.damage);
-    const p2DamageElem = document.getElementById('p2Damage');
-    if (p2.damage > 120) p2DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-rose-500 pulse-glow-red leading-none";
-    else if (p2.damage > 60) p2DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-amber-400 leading-none";
-    else p2DamageElem.className = "smash-font text-5xl font-bold tracking-tight text-white leading-none";
-
-    const p2StocksContainer = document.getElementById('p2Stocks');
-    p2StocksContainer.innerHTML = '';
-    const botStocksDisplay = S.gameMode === 'training' ? 3 : p2.stocks;
-    for (let i = 0; i < botStocksDisplay; i++) {
-        const pip = document.createElement('div');
-        pip.className = 'w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-300 shadow-md shadow-rose-500/50';
-        p2StocksContainer.appendChild(pip);
-    }
+    hudText('p2Damage', String(Math.floor(p2.damage)));
+    hudClass('p2Damage', dmgClass(p2.damage));
+    hudPips('p2Stocks', Math.max(0, S.gameMode === 'training' ? 3 : p2.stocks), 'w-3.5 h-3.5 rounded-full bg-rose-500 border border-rose-300 shadow-md shadow-rose-500/50');
 }
 
 function triggerDramaticZoom(winnerCharacter) {
@@ -1891,7 +2210,15 @@ const FFA_COLORS = ['#06b6d4', '#f43f5e', '#a3e635', '#f59e0b', '#a855f7', '#ec4
 function startMatchSequence(mode, cfg) {
     S.gameMode = mode;
     if (mode === 'lobby' && cfg) {
-        S.match = { teams: !!cfg.teams, startDamage: cfg.startDamage || 0, stocks: cfg.stocks || 3 };
+        const ic = cfg.items || {};
+        const lim = clampN(+cfg.timeLimit || 5, 1, 10);
+        S.match = {
+            teams: !!cfg.teams, startDamage: clampN(+cfg.startDamage || 0, 0, 249), stocks: cfg.stocks || 3,
+            mode: cfg.mode === 'timer' ? 'timer' : 'stock', timeLimit: lim,
+            items: ic.on ? { on: true, types: (ic.types || []).filter(t => ITEM_TYPES.includes(t)), interval: clampN(+ic.interval || 15, 5, 60) } : { on: false, types: [], interval: 15 },
+        };
+        S.timeLeft = Math.round(lim * 3600);
+        S.itemTimer = Math.round(S.match.items.interval * 30);
         S.mySlot = cfg.mySlot || 0;
         S.matchCfg = cfg;
         setArena('lobby');
@@ -1906,6 +2233,7 @@ function startMatchSequence(mode, cfg) {
     document.getElementById('gameOverModal').classList.add('hidden');
     dramaticZoom.active = false;
     orbs.length = 0;
+    items.length = 0; guestItems.clear(); inputBuf.a = null;
 
     if (S.match) {
         const n = cfg.players.length, span = STAGE.width * 0.7;
@@ -2061,6 +2389,7 @@ export const remote = { helds: {} };              // slot -> held inputs of each
 export function removeFighter(slot) {
     const f = fighters[slot];
     if (!f || !f.active || !S.match) return;
+    f.dropHeld();
     f.out = true; f.stocks = 0; f.vx = f.vy = 0;
     checkMatchEnd();
 }
@@ -2074,7 +2403,8 @@ export function applyRemote(ev, slot = 1) {
     if (!(remote.helds[slot] && remote.helds[slot].shield)) f.isShielding = false;   // shield was released before this action
     switch (ev.a) {
         case 'jump': f.jump(); break;
-        case 'attack': f.attack(ev.dir); break;
+        case 'attack': f.attack(ev.dir, !!ev.hold); break;
+        case 'attackUp': f.releaseAttack(); break;
         case 'grab': f.executeGrabDash(ev.wx, ev.wy); break;
         case 'roll': f.executeRoll(); break;
         case 'special': f.fPress(ev.dir); break;
@@ -2083,7 +2413,7 @@ export function applyRemote(ev, slot = 1) {
     }
 }
 
-const FKEYS = Object.keys(new Fighter(0, 0, '#000', 'k')).filter(k => !['color', 'name', 'isAI', 'startX', 'width', 'height', 'home'].includes(k));
+const FKEYS = Object.keys(new Fighter(0, 0, '#000', 'k')).filter(k => !['color', 'name', 'isAI', 'startX', 'width', 'height', 'home', 'heldItem', 'lastHitBy', 'swingHitSet', '_acc', '_since', '_slowK', '_upd'].includes(k));
 const REFS = ['grabHolding', 'grabbedBy', 'grabVictim', 'suplexTarget'];
 const SWING_NAMES = Object.keys(SWING);
 const r2 = (v) => typeof v === 'number' ? Math.round(v * 100) / 100 : v;
@@ -2113,8 +2443,8 @@ export function snapshot() {
         if (!f.active && S.match) return null;
         const cur = packFighter(f), out = {};
         for (const k in cur) {
-            const j = JSON.stringify(cur[k]);
-            if (full || lastSent[i][k] !== j) { out[k] = cur[k]; lastSent[i][k] = j; }
+            const v = cur[k], j = (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+            if (full || lastSent[i][k] !== j) { out[k] = v; lastSent[i][k] = j; }
         }
         return out;
     });
@@ -2123,12 +2453,15 @@ export function snapshot() {
         f: fs, m: S.match ? 1 : 0, gs: S.gameState, win: S.winnerRole || null,
         ws: S.winnerSlots || null, wl: S.winnerLabel || null, sh: Math.round(S.screenShake * 10) / 10,
         o: orbs.map(o => ({ id: o.id, x: r2(o.x), y: r2(o.y), vx: r2(o.vx), vy: r2(o.vy), r: r2(o.r), c: r2(o.charge), own: idxOf(o.owner) })),
+        it: items.map(i => ({ id: i.id, t: i.type, x: r2(i.x), y: r2(i.y), vx: r2(i.vx), vy: r2(i.vy), st: i.st, len: i.len, act: i.act ? 1 : 0, rot: r2(i.rot), sp: r2(i.spin), h: i.hold })),
+        tl: S.match && S.match.mode === 'timer' ? S.timeLeft : 0,
         ev,
     };
 }
 export function resetSnapshotState() { lastSent = Array.from({ length: 8 }, () => ({})); fullEvery = 0; outbox.length = 0; }
 
 const guestOrbs = new Map();
+const guestItems = new Map();
 const guestFlip = (i) => i < 0 ? -1 : (S.match ? i : 1 - i);   // 1v1: host's p1 is the guest's p2 and vice versa; custom matches use absolute slots
 function guestSmooth() {
     for (const f of (S.match ? fighters : [p1, p2])) {
@@ -2140,6 +2473,7 @@ function guestSmooth() {
         else { f.x += (f._tx - f.x) * 0.45; f.y += (f._ty - f.y) * 0.45; }
     }
     for (const o of orbs) { o.x += o.vx * 0.5; o.y += o.vy * 0.5; }
+    for (const g of items) if (g.st !== 'held' && !g.act && g.st !== 'zone') { g.x += g.vx * 0.5; g.y += g.vy * 0.5; g.rot += (g.spin || 0) * 0.5; }
 }
 export function applySnapshot(s) {
     const mine = s.m ? fighters : [p2, p1];               // snapshot index -> local fighter
@@ -2170,6 +2504,16 @@ export function applySnapshot(s) {
         Object.assign(g, { x: o.x, y: o.y, vx: o.vx, vy: o.vy, r: o.r, charge: o.c, owner: own, color, life: 200 });
     }
     for (const [id, g] of guestOrbs) if (!seen.has(id)) { guestOrbs.delete(id); const i = orbs.indexOf(g); if (i >= 0) orbs.splice(i, 1); }
+    // items, matched by id
+    const seenIt = new Set();
+    for (const o of (s.it || [])) {
+        seenIt.add(o.id);
+        let g = guestItems.get(o.id);
+        if (!g) { g = { id: o.id }; guestItems.set(o.id, g); items.push(g); }
+        Object.assign(g, { type: o.t, x: o.x, y: o.y, vx: o.vx, vy: o.vy, st: o.st, len: o.len, act: !!o.act, rot: o.rot, spin: o.sp, hold: o.h, r: ITEM_R[o.t] });
+    }
+    for (const [id, g] of guestItems) if (!seenIt.has(id)) { guestItems.delete(id); const i = items.indexOf(g); if (i >= 0) items.splice(i, 1); }
+    if (s.tl) S.timeLeft = s.tl;
     S.screenShake = Math.max(S.screenShake, s.sh || 0);
     // game state
     if (s.gs === 'gameover') {
@@ -2177,7 +2521,7 @@ export function applySnapshot(s) {
             S.winnerSlots = s.ws || []; S.winnerLabel = s.wl || 'NOBODY';
             S.iWon = S.winnerSlots.includes(S.mySlot);
             triggerDramaticZoom(fighters[S.winnerSlots[0]] || fighters[S.mySlot] || p1);
-            endGame(S.iWon ? 'YOU WIN!' : `${S.winnerLabel} WINS!`, 'lobby');
+            endGame(S.winnerLabel === 'DRAW' ? 'DRAW!' : S.iWon ? 'YOU WIN!' : `${S.winnerLabel} WINS!`, 'lobby');
         } else if (S.gameState !== 'gameover') {
             const winner = s.win === 'host' ? p2 : p1;
             triggerDramaticZoom(winner);
@@ -2194,27 +2538,40 @@ export function applySnapshot(s) {
 }
 
 export function step() {
+    const bubble = items.length && S.online !== 'guest' && items.some(i => i.act);
     for (const f of fighters) {
         if (!f.active) continue;
-        f.px = f.x; f.py = f.y;
-        f._teleported = false;
-        if (f.throwFxT > 0) f.throwFxT--;
+        if (bubble) {                                       // clock bubble: fighters inside only advance 3 of every 10 frames
+            const k = slowAt(f.x, f.y);
+            f._slowK = k;
+            if (k < 1) { f._acc += k; if (f._acc >= 1) { f._acc -= 1; f._upd = true; } else f._upd = false; }
+            else { f._acc = 0; f._upd = true; }
+        } else { f._slowK = 1; f._acc = 0; f._upd = true; }
+        if (f._upd) { f.px = f.x; f.py = f.y; f._teleported = false; f._since = 0; } else f._since++;
+        if (f.throwFxT > 0 && f._upd) f.throwFxT--;
     }
 
     if (S.online === 'guest') {
         guestSmooth();                                      // the host simulates; we only show what it sends
     } else if (S.gameState === 'playing' && S.match) {      // custom match: up to 8 fighters, steered by their players
         const live = fighters.filter(isAlive);
+        flushBuffered();
         for (const f of live) {
+            if (!f._upd) continue;
             if (f.isAI) { const foe = nearestOf(f, foesOf(f)); if (foe) f.updateAI(foe); f.update(); continue; }
             drive(f, f === p1 ? { left: isDown('left'), right: isDown('right'), shield: isDown('shield'), drop: isDown('drop') } : (remote.helds[f.slot] || NOHELD));
             f.update();
         }
         updateOrbs();
-        for (const a of fighters.filter(isAlive)) for (const b of fighters.filter(isAlive)) {
+        updateItems();
+        const live2 = fighters.filter(isAlive);
+        for (const a of live2) for (const b of live2) {
             if (a !== b && !(S.match.teams && a.team && a.team === b.team)) checkCombatCollisions(a, b);
         }
+        itemInteractions();
+        if (S.match.mode === 'timer' && S.online !== 'guest' && S.gameState === 'playing' && --S.timeLeft <= 0) finishTimer();
     } else if (S.gameState === 'playing') {
+        flushBuffered();
         drive(p1, { left: isDown('left'), right: isDown('right'), shield: isDown('shield'), drop: isDown('drop') });
         p1.update();
         if (S.online === 'host') drive(p2, remote.helds[1] || NOHELD);   // the guest's fighter, steered by their inputs
@@ -2270,6 +2627,7 @@ export function step() {
     }
 }
 
+export { spawnItem };
 export {
     WORLD, STAGE, BLAST_ZONES, dramaticZoom, keys, mouse, particles, p1, p2,
     Fighter, AIBot, updateAimMatrix, renderHUD, startMatchSequence, endGame, gameOverModal,

@@ -11,6 +11,7 @@ import { wx, wy, clamp01, lerp, smooth, seg, D2R } from './space.js';
 import { Trail } from './trail.js';
 
 const BLADE_LEN = 40;
+const WHITE = new THREE.Color(0xffffff);
 const ATTACK_FRAMES = 18;
 
 // ----------------------------------------------------------------- poses
@@ -35,7 +36,8 @@ export class FighterModel {
      * @param {object} fighter   the simulation Fighter (read only)
      * @param {object} opts      { variant: 'hero' | 'rival', fx: Effects }
      */
-    constructor(scene, fighter, { variant = 'hero', fx } = {}) {
+    constructor(scene, fighter, { variant = 'hero', fx, light = true } = {}) {
+        this.useLight = light;
         this.builtColor = fighter.color;
         this.f = fighter;
         this.fx = fx;
@@ -57,6 +59,10 @@ export class FighterModel {
         this.firedAtk = {};
         this.prevPos = new THREE.Vector3(wx(fighter.x), wy(fighter.y), 0);
         this.greyAmt = 0;
+        this.whiteAmt = 0;                 // charging a melee: whitish glow
+        this.spinYaw = 0;                  // sword-spin: extra yaw
+        this.tugT = 99;                    // balloon-string tug (extra jumps)
+        this.glintT = 0;
         this.visFacing = 1;
         this.v3 = new THREE.Vector3();
         this.v3b = new THREE.Vector3();
@@ -268,9 +274,11 @@ export class FighterModel {
         this.stars.visible = false;
 
         // soft light that follows the fighter so the stage picks up its colour
-        this.light = new THREE.PointLight(base.clone(), 2.5e4, 420, 2);
-        this.light.position.set(0, 10, 70);
-        this.root.add(this.light);
+        if (this.useLight) {
+            this.light = new THREE.PointLight(base.clone(), 2.5e4, 420, 2);
+            this.light.position.set(0, 10, 70);
+            this.root.add(this.light);
+        }
 
         // ground contact shadow disc (cheap & always visible, independent of the shadow map)
         const blob = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({
@@ -371,16 +379,16 @@ export class FighterModel {
             p.rHx = 8; p.lHx = -6; p.rK = 22; p.lK = 30; p.headX = -10; p.aura = 1; p.blade = 1;
             return p;
         }
-        if (f.specialKind === 'SUPLEX') {                // carrying the opponent up, then slamming them down
-            if (f.suplexPhase === 'rise') {
-                const u = clamp01(f.suplexN / 20);
-                p.dy = -3; p.rSx = 172; p.lSx = 172; p.rSz = 10; p.lSz = 10; p.rE = 6; p.lE = 6;
-                p.lean = -10 - 22 * smooth(u); p.headX = -14; p.rHx = 20; p.lHx = 6; p.rK = 60; p.lK = 50; p.fwd = -3; p.aura = 0.8;
-            } else {
-                const u = clamp01(f.suplexN / 12);
-                p.rSx = lerp(172, 70, smooth(u)); p.lSx = p.rSx; p.rE = 20; p.lE = 20; p.rSz = 10; p.lSz = 10;
-                p.lean = lerp(-30, 38, smooth(u)); p.headX = 14 * smooth(u); p.rHx = 30; p.lHx = 10; p.rK = 30; p.lK = 24; p.aura = 1; p.pitch = 0;
-            }
+        if (f.specialKind === 'SUPLEX') {                // backwards half backflip carrying the opponent round with you
+            const ang = (f.suplexAng || 0) / D2R;
+            p.spin = -ang; p.dy = -3; p.aura = 0.9;
+            p.rSx = 172; p.lSx = 172; p.rSz = 10; p.lSz = 10; p.rE = 6; p.lE = 6; p.headX = -14; p.rHx = 38; p.lHx = 30; p.rK = 80; p.lK = 70;
+            p.lean = f.suplexPhase === 'rise' ? -6 : 4;
+            return p;
+        }
+        if (f.landFlipT > 0) {                          // finishing the backflip: roll on round to the feet
+            const u = 1 - f.landFlipT / 12;
+            p.spin = -(180 + 180 * smooth(u)); p.dy = -3; p.rK = 100; p.lK = 100; p.rHx = 80; p.lHx = 80; p.rSx = 70; p.lSx = 70; p.rE = 100; p.lE = 100;
             return p;
         }
         if (f.diving || f.specialKind === 'HEADBUTT') {
@@ -433,7 +441,11 @@ export class FighterModel {
             p.rHx = lerp(52, 14, rise); p.lHx = lerp(-12, -8, rise);
             p.rK = lerp(78, 22, rise); p.lK = lerp(34, 18, rise);
             p.lean = lerp(-4, 6, rise); p.headX = lerp(-6, 4, rise);
-            if (this.flipT < 0.5) {
+            if (f.balloon && this.tugT < 0.5) {                       // extra balloon jump: hang from the string
+                const u = this.tugT / 0.5, w = Math.sin(u * Math.PI);
+                p.rSx = 172; p.lSx = 172; p.rSz = 8; p.lSz = 8; p.rE = 6 + 10 * w; p.lE = 6 + 10 * w; p.rHx = 14; p.lHx = -10; p.rK = 30 + 20 * w; p.lK = 18 + 20 * w;
+                p.lean = 4 * w; p.headX = -6; p.dy = -2 + 3 * w;
+            } else if (this.flipT < 0.5) {
                 const u = this.flipT / 0.5;
                 p.spin = 360 * smooth(u);
                 p.rK = 95; p.lK = 95; p.rHx = 85; p.lHx = 85; p.rSx = 95; p.lSx = 95; p.rE = 120; p.lE = 120;
@@ -476,17 +488,18 @@ export class FighterModel {
         const k = f.attackKind;
         const o = {};
         const hand = (f.attackSerial % 2 === 0) ? 'R' : 'L';
+        const chg = f.attackHeld ? clamp01(f.meleeCharge / 102) : 0;
 
-        if (k === 'JAB') {
-            const ext = smooth(seg(u, 0.08, 0.3)) * (1 - smooth(seg(u, 0.42, 0.78)));
-            const P = hand, O = hand === 'R' ? 'L' : 'R';
-            o[P + 'Sx'] = lerp(38, 94, ext); o[P + 'E'] = lerp(118, 4, ext); o[P + 'Sz'] = 6;
-            o[O + 'Sx'] = 58; o[O + 'E'] = 112; o[O + 'Sz'] = 8;
-            o.torsoY = (hand === 'R' ? -1 : 1) * 30 * ext; o.twist = (hand === 'R' ? -1 : 1) * 10 * ext;
-            o.fwd = 7 * ext; o.lean = 9 * ext;
-            o[P + 'Hx'] = 30 * ext; o[(hand === 'R' ? 'l' : 'r') + 'Hx'] = -18 * ext;
-            o.rK = 18; o.lK = 18;
-            return { w, kind: k, u, o, hand, ext };
+        if (k === 'JAB') {                                   // around-the-world sword spin
+            const wind = smooth(seg(u, 0, 0.2));
+            const spin = smooth(seg(u, 0.2, 0.86));
+            const rec = smooth(seg(u, 0.86, 1));
+            o.rSx = lerp(130, 92, wind); o.rSx = lerp(o.rSx, 20, rec); o.rE = 4; o.rSz = 4 + 10 * (1 - wind);
+            o.lSx = lerp(20, 60, wind); o.lE = 40; o.lSz = 30;
+            o.lean = 8 * wind * (1 - rec); o.dy = -3 * wind * (1 - rec); o.headX = -4; o.rK = 22; o.lK = 18; o.rHx = 12; o.lHx = -8;
+            o.blade = smooth(seg(u, 0.02, 0.14)) * (1 - smooth(seg(u, 0.88, 1)));
+            o.aura = 0.6 * wind * (1 - rec);
+            return { w, kind: k, u, o, spin, spinYaw: spin * Math.PI * 2 };
         }
         if (k === 'UP') {
             const crouch = smooth(seg(u, 0, 0.16)) * (1 - smooth(seg(u, 0.16, 0.3)));
@@ -542,7 +555,10 @@ export class FighterModel {
 
         // ---- placement (interpolated between the last two simulation steps)
         let x = f.x, y = f.y;
-        if (!f._teleported) { x = lerp(f.px, f.x, alpha); y = lerp(f.py, f.y, alpha); }
+        if (!f._teleported) {
+            const a = f._slowK < 1 ? Math.min(1, ((f._since || 0) + alpha) * f._slowK) : alpha;   // clock bubble: glide through the slow steps
+            x = lerp(f.px, f.x, a); y = lerp(f.py, f.y, a);
+        }
         const pos = this.v3.set(wx(x), wy(y), 0);
         const jumped = pos.distanceTo(this.prevPos) > 260;
         if (jumped) this.onTeleport(pos);
@@ -556,7 +572,10 @@ export class FighterModel {
 
         // ---- pose
         const airNow = !f.grounded && !f.isHanging;
-        if (airNow && this.wasAir && f.jumpsLeft < this.lastJumps) this.flipT = 0; // mid-air jump -> somersault
+        this.tugT += dt;
+        if (airNow && this.wasAir && f.jumpsLeft < this.lastJumps) {   // mid-air jump -> somersault (balloon jumps tug the string instead)
+            if (f.balloon && f.maxJumps - f.jumpsLeft > 4) this.tugT = 0; else this.flipT = 0;
+        }
         this.wasAir = airNow;
         this.lastJumps = f.jumpsLeft;
         const base = this.#statePose(dt, alpha);
@@ -568,9 +587,15 @@ export class FighterModel {
         this.cur.spin = base.spin; this.cur.pitch = base.pitch;
 
         const pose = { ...this.cur };
+        this.spinYaw = 0;
         const atk = this.#attackOverlay(alpha);
         if (atk) {
+            if (atk.spinYaw) this.spinYaw = atk.spinYaw * this.visFacing;
             for (const k in atk.o) pose[k] = lerp(pose[k], atk.o[k], atk.w);
+            if (f.attackHeld && f.meleeCharge > 0) {                  // charging: tremble + glow
+                const c = clamp01(f.meleeCharge / 102);
+                pose.twist += Math.sin(this.t * 55) * 2.4 * c; pose.dy += Math.sin(this.t * 70) * 0.8 * c; pose.aura = Math.max(pose.aura, 0.35 + 0.65 * c);
+            }
             if (atk.kind === 'LUNGE') { this.visFacing = f.facing; }
             else if (atk.kind === 'SIDE_LEFT') this.visFacing = -1;
             else if (atk.kind === 'SIDE_RIGHT') this.visFacing = 1;
@@ -582,7 +607,7 @@ export class FighterModel {
         // ---- facing (yaw) with a 3/4 bias toward the camera
         const targetYaw = this.visFacing * (90 - 24) * D2R;
         this.yaw += (targetYaw - this.yaw) * (1 - Math.exp(-dt * 22));
-        this.yawG.rotation.y = this.yaw;
+        this.yawG.rotation.y = this.yaw + this.spinYaw;
 
         const sf = this.visFacing;
         this.flip.rotation.z = sf * pose.pitch * D2R - sf * pose.spin * D2R + (this.tumble || 0);
@@ -653,10 +678,25 @@ export class FighterModel {
         // greyed while stunned / grabbed / dizzy
         const grey = (f.hitstun > 0 || f.dizzyTimer > 0 || f.clashStunTimer > 0 || f.grabbedBy !== null) ? 1 : 0;
         this.greyAmt += (grey - this.greyAmt) * (1 - Math.exp(-dt * 30));
+        const wantWhite = f.attackHeld ? clamp01(f.meleeCharge / 102) : 0;       // charging a melee: fade toward white
+        this.whiteAmt += (wantWhite - this.whiteAmt) * (1 - Math.exp(-dt * 12));
+        const wa = this.whiteAmt * 0.78;
         for (const t of this.tintables) {
             t.m.color.copy(t.base).lerp(t.grey, this.greyAmt);
             t.m.emissive.copy(t.emis).multiplyScalar(1 - this.greyAmt * 0.85);
+            if (wa > 0.005) { t.m.color.lerp(WHITE, wa); t.m.emissive.lerp(WHITE, wa * 0.55); }
         }
+        // fully charged: a glisten in the fighter's colour
+        if (f.attackHeld && f.meleeCharge >= 102 && this.fx) {
+            this.glintT -= dt;
+            if (this.glintT <= 0) {
+                this.glintT = 0.5;
+                const c = this.root.position;
+                this.fx.star(c.clone(), 70, this.baseColor, 0.28);
+                this.fx.ring(c.clone(), 6, 76, 0.32, this.baseColor, 'screen');
+                this.fx.sparks(c.clone(), '#ffffff', 8, 240, 0.4);
+            }
+        } else this.glintT = 0;
 
         // shield bubble: radius follows the remaining shield exactly like the original
         if (f.isShielding) {
@@ -681,7 +721,7 @@ export class FighterModel {
                 s.rotation.y = a * 2; s.rotation.x = a;
             });
         }
-        this.light.intensity = 2.5e4 * (flick ? 0.5 : 1);
+        if (this.light) this.light.intensity = 2.5e4 * (flick ? 0.5 : 1);
     }
 
     // ============================================================ effects tied to the animation
@@ -695,11 +735,10 @@ export class FighterModel {
         const mark = (k, thr) => { if (!fired[k] && u >= thr) { fired[k] = true; return true; } return false; };
         const c = this.root.position; // fighter centre (render)
 
-        if (a.kind === 'JAB' && mark('ring', 0.26)) {
-            const fist = (a.hand === 'R' ? this.fistMarkR : this.fistMarkL).getWorldPosition(new THREE.Vector3());
-            fx.ring(fist, 4, 30, 0.22, '#e0f2fe', 'screen');
-            fx.sparks(fist, '#bae6fd', 7, 160, 0.25);
-            fx.star(fist, 34, '#e0f2fe', 0.14);
+        if (a.kind === 'JAB' && mark('ring', 0.3)) {
+            fx.ring(c.clone(), 8, 96, 0.3, col, 'screen');
+            fx.ring(c.clone(), 4, 64, 0.22, '#ffffff', 'screen');
+            fx.sparks(c.clone(), '#bae6fd', 12, 280, 0.32);
         }
         if (a.kind === 'UP' && mark('arc', 0.15)) {
             const sh = this.armR.sh.getWorldPosition(new THREE.Vector3());
@@ -750,11 +789,6 @@ export class FighterModel {
             T.blade.push(get(this.bladeBaseM), get(this.bladeTipM));
         }
         // fists on jabs
-        if (atk && atk.kind === 'JAB' && atk.ext > 0.15) {
-            const R = atk.hand === 'R';
-            const tr = R ? T.fistR : T.fistL;
-            tr.push(get(R ? this.fistMarkR : this.fistMarkL), get((R ? this.armR : this.armL).el));
-        }
         // feet on the stomp / dive
         if (atk && atk.kind === 'DOWN' && atk.st > 0.2) {
             T.footR.push(get(this.legR.ank), get(this.legR.kn));

@@ -6,7 +6,8 @@ export const DEFAULT_LAYOUT = {
     mode: 'auto',                                   // 'auto' | 'pc' | 'mobile'
     mobile: {
         matrix: { x: 0.86, y: 0.50 },
-        jump:   { x: 0.66, y: 0.80, s: 86 },
+        jump:   { x: 0.64, y: 0.80, s: 86 },
+        grab:   { x: 0.775, y: 0.86, s: 80 },
         shield: { x: 0.91, y: 0.84, s: 86 },
     },
 };
