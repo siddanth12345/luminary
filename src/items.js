@@ -12,7 +12,7 @@ export const ITEM_INFO = {
     },
     BALLOON: {
         name: 'Balloon', icon: '🎈',
-        desc: 'Grab it to get 7 jumps (until you are knocked out). After your normal 4 jumps you tug on the balloon string for the extra ones. Jump to use it. Hitting someone with a melee while holding it pops it: they get knockback and 0.65x gravity for 2 seconds.',
+        desc: 'Grab it to get 3 EXTRA jumps on top of your own (until you are knocked out). After your normal jumps you tug on the balloon string for the extra ones. Jump to use it. Hitting someone with a melee while holding it pops it: they get knockback and 0.65x gravity for 2 seconds.',
     },
     FIRESTICK: {
         name: 'Firestick', icon: '🔥',

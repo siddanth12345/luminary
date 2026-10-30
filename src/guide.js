@@ -4,6 +4,7 @@ import { S, p1, orbs, startMatchSequence } from './core.js';
 import { keyLabel } from './controls.js';
 import { touchMode } from './layout.js';
 import { items, spawnItem } from './core.js';
+import { charOf } from './characters.js';
 
 const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const K = (a) => `<kbd>${esc(keyLabel(a))}</kbd>`;
@@ -21,7 +22,7 @@ const STEPS = [
     },
     {
         title: 'Double jump',
-        text: (m) => `${m ? 'Tap <b>Jump</b>' : 'Press ' + K('jump')} twice in a row. You have 4 jumps in the air, and the ground refills them.`,
+        text: (m) => `${m ? 'Tap <b>Jump</b>' : 'Press ' + K('jump')} twice in a row. You have ${charOf(p1.char).jumps} jumps in the air (it depends on your character), and the ground refills them.`,
         init: () => ({}),
         check: () => !p1.grounded && p1.jumpsLeft <= p1.maxJumps - 2,
     },

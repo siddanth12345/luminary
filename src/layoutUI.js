@@ -1,10 +1,10 @@
 // Full-screen mobile layout editor. It opens as its own screen on top of everything (not a box):
 // drag a control to move it, tap a button to resize it, then Save or Cancel.
 import { copyLayout, saveLayout, DEFAULT_LAYOUT } from './layout.js';
-import { buildControls, positionControls, matrixSize } from './touch.js';
+import { buildControls, positionControls, matrixSize, MATRIX_MIN, MATRIX_MAX } from './touch.js';
 
-const SIZED = ['jump', 'grab', 'shield'];
-const NAMES = { matrix: 'Aim grid (move only)', jump: 'Jump', grab: 'Grab (drag to aim)', shield: 'Shield' };
+const SIZED = ['matrix', 'jump', 'grab', 'shield'];
+const NAMES = { matrix: 'Aim grid (scales around its middle)', jump: 'Jump', grab: 'Grab (drag to aim)', shield: 'Shield' };
 
 export class LayoutEditor {
     constructor({ root }) {
@@ -15,7 +15,7 @@ export class LayoutEditor {
         this.el.innerHTML = `
             <div class="le-bar">
                 <button class="le-btn le-ghost" data-cancel>Cancel</button>
-                <div class="le-title">Edit mobile layout<small>Drag a control to move it. Tap a button to resize it.</small></div>
+                <div class="le-title">Edit mobile layout<small>Drag a control to move it. Tap a button (the red centre for the grid) to resize it.</small></div>
                 <button class="le-btn le-ghost" data-reset>Reset</button>
                 <button class="le-btn" data-save>Save</button>
             </div>
@@ -38,7 +38,7 @@ export class LayoutEditor {
         this.el.querySelector('[data-save]').addEventListener('click', () => this.close(true));
         this.el.querySelector('[data-reset]').addEventListener('click', () => { this.cfg = JSON.parse(JSON.stringify(DEFAULT_LAYOUT)).mobile; this.sel = null; this.layout(); });
         this.slider = this.el.querySelector('[data-slider]');
-        this.slider.addEventListener('input', () => { if (this.sel && this.cfg[this.sel].s !== undefined) { this.cfg[this.sel].s = +this.slider.value; this.layout(); } });
+        this.slider.addEventListener('input', () => { if (this.sel) { this.cfg[this.sel].s = +this.slider.value; this.layout(); } });
         window.addEventListener('resize', () => { if (!this.el.hidden) this.layout(); });
 
         // the grid's inner buttons are inert in the editor: the whole control drags as one
@@ -78,8 +78,9 @@ export class LayoutEditor {
         if (this.sel) {
             this.el.querySelector('[data-sizelabel]').textContent = NAMES[this.sel];
             this.slider.hidden = !sized; this.slider.parentElement.classList.toggle('le-noslider', !sized);
-            if (sized) { this.slider.value = this.cfg[this.sel].s; this.el.querySelector('[data-sizeval]').textContent = this.cfg[this.sel].s + ' px'; }
-            else this.el.querySelector('[data-sizeval]').textContent = 'The grid keeps a fixed size';
+            const isM = this.sel === 'matrix', cur = isM ? matrixSize(this.cfg) : this.cfg[this.sel].s;
+            this.slider.min = isM ? MATRIX_MIN : 44; this.slider.max = isM ? MATRIX_MAX : 150;
+            this.slider.value = cur; this.el.querySelector('[data-sizeval]').textContent = Math.round(cur) + ' px';
         }
     }
 
@@ -95,7 +96,7 @@ export class LayoutEditor {
         const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
         if (!d.moved && Math.hypot(dx, dy) < 6) return;
         d.moved = true;
-        const half = (d.k === 'matrix' ? matrixSize() : this.cfg[d.k].s) / 2;
+        const half = (d.k === 'matrix' ? matrixSize(this.cfg) : this.cfg[d.k].s) / 2;
         const c = this.cfg[d.k];
         c.x = Math.min(1 - half / d.w, Math.max(half / d.w, d.ox + dx / d.w));
         c.y = Math.min(1 - half / d.h, Math.max(half / d.h, d.oy + dy / d.h));

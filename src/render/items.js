@@ -106,27 +106,31 @@ export class ItemsView {
             scene.add(g, str);
             this.balloons.push({ g, str });
         }
-        // time bubble (flat on the play plane)
-        this.bubble = new THREE.Group();
+        // time bubbles (flat on the play plane): a small pool so every active clock gets its own
+        this.bubbles = [];
+        this.mkBubble = () => {
+        const bubble = new THREE.Group();
         const fill = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color('#38bdf8').multiplyScalar(1.2), transparent: true, opacity: 0.07, blending: ADD, depthWrite: false, toneMapped: false }));
         const edge = new THREE.Mesh(new THREE.RingGeometry(0.985, 1, 96), new THREE.MeshBasicMaterial({ color: new THREE.Color('#7dd3fc').multiplyScalar(2), transparent: true, opacity: 0.8, blending: ADD, depthWrite: false, toneMapped: false }));
-        this.ticks = new THREE.Group();
+        const ticks = new THREE.Group();
         const tickMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#bae6fd').multiplyScalar(2), transparent: true, opacity: 0.7, blending: ADD, depthWrite: false, toneMapped: false });
         for (let i = 0; i < 12; i++) {
             const a = i * Math.PI / 6, t = new THREE.Mesh(new THREE.PlaneGeometry(0.012, i % 3 === 0 ? 0.08 : 0.04), tickMat);
-            t.position.set(Math.sin(a) * 0.94, Math.cos(a) * 0.94, 0); t.rotation.z = -a; this.ticks.add(t);
+            t.position.set(Math.sin(a) * 0.94, Math.cos(a) * 0.94, 0); t.rotation.z = -a; ticks.add(t);
         }
         const handMat = tickMat;
-        this.hand = new THREE.Mesh(new THREE.PlaneGeometry(0.014, 0.42), handMat); this.hand.position.y = 0.21;
-        this.handG = new THREE.Group(); this.handG.add(this.hand);
-        this.bubble.add(fill, edge, this.ticks, this.handG);
-        this.bubble.visible = false; this.bubble.renderOrder = 2;
-        scene.add(this.bubble);
+        const hand = new THREE.Mesh(new THREE.PlaneGeometry(0.014, 0.42), handMat); hand.position.y = 0.21;
+        const handG = new THREE.Group(); handG.add(hand);
+        bubble.add(fill, edge, ticks, handG);
+        bubble.visible = false; bubble.renderOrder = 2;
+        scene.add(bubble);
+        return { bubble, ticks, handG };
+        };
     }
 
     update(dt, t, models) {
         const live = new Set();
-        let bubbleAt = null;
+        const bubbleAt = [];
         for (const it of items) {
             if (it.st === 'dead') continue;
             live.add(it.id);
@@ -162,7 +166,7 @@ export class ItemsView {
                 min.rotation.z = -t * (it.act ? 3 : 0.6); hr.rotation.z = -t * (it.act ? 0.25 : 0.05);
                 const s = it.act ? 1.25 + Math.sin(t * 6) * 0.05 : 1;
                 g.scale.setScalar(s);
-                if (it.act) bubbleAt = it;
+                if (it.act) bubbleAt.push(it);
             } else {
                 g.position.set(px, py + (it.st === 'idle' ? Math.sin(t * 3 + it.id) * 3 : 0), 4);
                 g.rotation.z = it.type === 'BALL' ? -(it.rot || 0) : Math.sin(t * 2.4 + it.id) * 0.1;
@@ -173,14 +177,17 @@ export class ItemsView {
             if (!live.has(id)) { this.scene.remove(e.g); e.g.traverse(o => { if (o.geometry) o.geometry.dispose(); }); this.map.delete(id); }
         }
 
-        // time bubble
-        if (bubbleAt) {
-            this.bubble.visible = true;
-            this.bubble.position.set(wx(bubbleAt.x), wy(bubbleAt.y), -20);
-            this.bubble.scale.setScalar(CLOCK_RADIUS);
-            this.ticks.rotation.z = -t * 0.05;
-            this.handG.rotation.z = -t * 0.35;
-        } else this.bubble.visible = false;
+        // time bubbles
+        while (this.bubbles.length < bubbleAt.length) this.bubbles.push(this.mkBubble());
+        this.bubbles.forEach((b, i) => {
+            const c = bubbleAt[i];
+            if (!c) { b.bubble.visible = false; return; }
+            b.bubble.visible = true;
+            b.bubble.position.set(wx(c.x), wy(c.y), -20 - i);
+            b.bubble.scale.setScalar(CLOCK_RADIUS);
+            b.ticks.rotation.z = -t * 0.05;
+            b.handG.rotation.z = -t * 0.35;
+        });
 
         // balloons towed by fighters who picked one up
         fighters.forEach((f, i) => {

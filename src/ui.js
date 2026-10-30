@@ -31,7 +31,7 @@ const PAGES = [
         html: (k) => `
             <div class="lm-grid">
                 <div class="lm-card"><h4>Walk &amp; jump</h4>
-                    <p><kbd>${k('left')}</kbd> / <kbd>${k('right')}</kbd> walk. <kbd>${k('jump')}</kbd> jumps (you have <b>4 jumps</b>, refilled on the ground or a ledge).</p></div>
+                    <p><kbd>${k('left')}</kbd> / <kbd>${k('right')}</kbd> walk. <kbd>${k('jump')}</kbd> jumps (you have <b>3 to 5 jumps</b> depending on your character, refilled on the ground or a ledge).</p></div>
                 <div class="lm-card"><h4>Move lag</h4>
                     <p>After <b>any</b> move you wait <b>0.7 s</b> before the next one. You can always walk, and you can jump again after <b>0.3 s</b>.</p></div>
                 <div class="lm-card"><h4>Ledges</h4>

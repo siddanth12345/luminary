@@ -11,7 +11,10 @@ import { virtual } from './controls.js';
 import { getLayout, touchMode, onLayout } from './layout.js';
 
 export const MATRIX_BASE = 230;
-export const matrixSize = () => Math.max(150, Math.min(MATRIX_BASE, Math.min(window.innerWidth, window.innerHeight) * 0.56));
+export const matrixAuto = () => Math.max(150, Math.min(MATRIX_BASE, Math.min(window.innerWidth, window.innerHeight) * 0.56));
+export const MATRIX_MIN = 130, MATRIX_MAX = 320;
+/** the aim grid's size in px: the saved size (layout editor) or an automatic one that fits the screen */
+export const matrixSize = (cfg) => { const s = cfg && cfg.matrix && cfg.matrix.s; return s ? Math.min(MATRIX_MAX, Math.max(MATRIX_MIN, s)) : matrixAuto(); };
 
 const DIRS = { UP: [0, -1], DOWN: [0, 1], SIDE_LEFT: [-1, 0], SIDE_RIGHT: [1, 0] };
 const HOLD_MS = 400;
@@ -20,6 +23,7 @@ const HOLD_MS = 400;
 export function buildControls(host) {
     host.insertAdjacentHTML('beforeend', `
         <div class="tz-matrix" data-k="matrix">
+            <div class="tz-hit" data-hit></div>
             <div class="tz-ring"></div>
             <button class="tz-b tz-dir" data-dir="UP" aria-label="Up attack"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M12 19V6M6 11l6-6 6 6" /></svg></button>
             <button class="tz-b tz-dir" data-dir="SIDE_LEFT" aria-label="Left attack"><svg viewBox="0 0 24 24" class="tz-ic"><path d="M19 12H6M11 6l-6 6 6 6" /></svg></button>
@@ -36,7 +40,7 @@ export function buildControls(host) {
 
 /** place the controls according to a layout (fractions of the host size) */
 export function positionControls(refs, cfg, w = window.innerWidth, h = window.innerHeight) {
-    const M = matrixSize();
+    const M = matrixSize(cfg);
     const place = (el, c, size) => {
         el.style.width = el.style.height = size + 'px';
         const x = Math.min(w - size / 2, Math.max(size / 2, c.x * w)), y = Math.min(h - size / 2, Math.max(size / 2, c.y * h));
@@ -45,11 +49,11 @@ export function positionControls(refs, cfg, w = window.innerWidth, h = window.in
     place(refs.matrix, cfg.matrix, M);
     for (const k of ['jump', 'grab', 'shield']) place(refs[k], cfg[k], cfg[k].s);
     // grid internals
-    const sub = refs.matrix, d = M * 0.22, off = M * 0.31, c = M / 2;
+    const sub = refs.matrix, d = M * 0.22, off = M * 0.33, c = M / 2;
     const put = (el, dx, dy, dd) => { el.style.width = el.style.height = dd + 'px'; el.style.left = (c + dx - dd / 2) + 'px'; el.style.top = (c + dy - dd / 2) + 'px'; };
-    for (const b of sub.querySelectorAll('.tz-dir')) { const v = DIRS[b.dataset.dir]; put(b, v[0] * off, v[1] * off, d); }
+    for (const b of sub.querySelectorAll('.tz-dir')) { const v = DIRS[b.dataset.dir]; put(b, v[0] * off, v[1] * off, d * 1.25); }
     put(sub.querySelector('.tz-main'), 0, 0, M * 0.26);
-    return { M, off, d };
+    return { M, off, d, lim: M * 0.37 };
 }
 
 export class TouchControls {
@@ -149,12 +153,24 @@ export class TouchControls {
         };
         z.addEventListener('pointerup', joyEnd); z.addEventListener('pointercancel', joyEnd);
 
-        // ---------------------------------------------------------- black direction buttons: melee (hold = charge)
-        for (const b of this.refs.matrix.querySelectorAll('.tz-dir')) {
-            let holding = false;
-            b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.setPointerCapture(e.pointerId); holding = true; b.classList.add('down'); this.act('attack', b.dataset.dir); });
-            const up = () => { b.classList.remove('down'); if (holding) { holding = false; this.api.releaseAction('attack'); } };
-            b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+        // ---------------------------------------------------------- outer circle: touching it presses the NEAREST arrow (melee, hold = charge)
+        const mx = this.refs.matrix, hit = mx.querySelector('[data-hit]'), ring = mx.querySelector('.tz-ring');
+        const nearest = (e) => {
+            const r = mx.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+            return Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'SIDE_LEFT' : 'SIDE_RIGHT') : (dy < 0 ? 'UP' : 'DOWN');
+        };
+        let arrow = null;
+        const arrowEl = (d) => mx.querySelector(`.tz-dir[data-dir="${d}"]`);
+        for (const el of [hit, ring]) {
+            el.addEventListener('pointerdown', (e) => {
+                if (arrow) return;
+                e.preventDefault(); e.stopPropagation(); el.setPointerCapture(e.pointerId);
+                const dir = nearest(e); arrow = { id: e.pointerId, dir, el };
+                arrowEl(dir).classList.add('down');
+                this.act('attack', dir);
+            });
+            const up = (e) => { if (!arrow || e.pointerId !== arrow.id) return; arrowEl(arrow.dir).classList.remove('down'); arrow = null; this.api.releaseAction('attack'); };
+            el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
         }
 
         // ---------------------------------------------------------- red centre: jab (spin) / neutral F / directional F; while charging a Core, drag to AIM it
@@ -179,12 +195,14 @@ export class TouchControls {
         main.addEventListener('pointermove', (e) => {
             if (!g || e.pointerId !== g.id) return;
             const dx = e.clientX - g.sx, dy = e.clientY - g.sy, len = Math.hypot(dx, dy);
-            const lim = this.geo.off;
+            const lim = this.geo.lim;                                 // the button can't leave the grid
             const k = len > lim ? lim / len : 1;
             main.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
             if (g.charging) {                                         // the Core is charging: dragging only aims it (never switches move)
                 if (len > 10) { g.aim = [dx / len, dy / len]; showAim(g.aim); }
                 else { g.aim = null; showAim(null); }
+                const near = len > this.geo.d * 0.45 ? (Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'SIDE_LEFT' : 'SIDE_RIGHT') : (dy < 0 ? 'UP' : 'DOWN')) : null;
+                clearSel(); if (near) dirButton(near).classList.add('sel');          // the closest arrow glows while the Core charges too
                 return;
             }
             let sel = null;

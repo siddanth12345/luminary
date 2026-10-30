@@ -10,7 +10,7 @@ export class CharUI {
         this.el.className = 'lm-modal lm-hidden';
         this.el.innerHTML = `<div class="lm-panel" role="dialog" aria-label="Characters">
             <div class="lm-head"><h2>Characters</h2><button class="lm-x" data-close aria-label="Close">✕</button></div>
-            <div class="lm-body"><p class="lm-note">Pick who you fight as. Bots in Easy / Medium / Hard and training use your character. All melee hitboxes are identical; characters differ in walk speed, a few special tunings, and how they look and move. In a custom match the host can pick a character for each bot.</p>
+            <div class="lm-body"><p class="lm-note">Pick who you fight as. Bots in Easy / Medium / Hard and training use your character. Melee hitboxes are identical; characters differ in walk speed, jumps, how much knockback they take (slow ones take less, fast ones more), their five F specials, and how they look. In a custom match the host can pick a character for each bot.</p>
             <div class="ch-grid" data-grid></div></div></div>`;
         root.appendChild(this.el);
         this.grid = this.el.querySelector('[data-grid]');
@@ -40,7 +40,8 @@ export class CharUI {
                     ${on ? '<em class="ch-tag">Equipped</em>' : ''}
                     <button class="lm-btn lm-btn-ghost lm-mini ch-info" data-info="${id}" aria-expanded="${this.open_.has(id)}">${this.open_.has(id) ? 'Hide' : 'Info'}</button>
                 </div>
-                ${this.open_.has(id) ? `<p class="ch-desc">${c.desc}<br><small>Walk speed ${spd}%</small></p>` : ''}
+                ${this.open_.has(id) ? `<p class="ch-desc">${c.desc}<br><small>Walk speed ${spd}% · ${c.jumps} jumps in the air · takes ${Math.round(c.kb * 100)}% knockback</small>
+                    <span class="ch-sp">${c.specials.map(s => `<b>${s.key}: ${s.name}</b> ${s.desc}`).join('<br>')}</span></p>` : ''}
             </div>`;
         }).join('');
     }

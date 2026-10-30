@@ -1,6 +1,7 @@
 // Playable characters. All share the same hitboxes and moves; they differ in walk speed, a few special
 // tunings, their model and how their melee animations look. Team / FFA colours still drive the glow and
 // armour tint, so `look` only adds shape, props and a suit/trim palette.
+import { SP } from './specials.js';
 export const CHAR_IDS = ['luminent', 'bulwark', 'zephyr', 'ember', 'tide', 'volt', 'umbra', 'terra'];
 export const DEFAULT_CHAR = 'luminent';
 
@@ -13,13 +14,13 @@ export const CHARS = {
     },
     bulwark: {
         id: 'bulwark', name: 'Bulwark', role: 'Tank', walk: 0.72, orb: 0.85, blink: 0.8, scale: 1.14,
-        desc: 'An armoured knight who walks slowly but never hurries. Swings a heavy tower shield. Short Blink, slower Core orb.',
+        desc: 'An armoured knight who walks slowly but never hurries. Swings a heavy tower shield. Armoured specials and the hardest hits.',
         look: { suit: 0x1e293b, trim: 0x94a3b8, head: 'bucket', weapon: 'slab', anim: 'heavy', extra: 'shieldback' },
         art: { skin: '#94a3b8', feature: 'bucket' },
     },
     zephyr: {
         id: 'zephyr', name: 'Zephyr', role: 'Light, very fast', walk: 1.35, orb: 1.15, blink: 1.15, scale: 0.92,
-        desc: 'A wind dancer who fights with spins and kicks, no weapon. The fastest walker. Longer Blink, faster Core orb.',
+        desc: 'A wind dancer who fights with spins and kicks, no weapon. The fastest walker. Long dashes, wind bursts, very few big hits.',
         look: { suit: 0x134e4a, trim: 0xe2e8f0, head: 'ribbon', weapon: 'fist', anim: 'kick', extra: 'scarf' },
         art: { skin: '#e2e8f0', feature: 'ribbon' },
     },
@@ -31,13 +32,13 @@ export const CHARS = {
     },
     tide: {
         id: 'tide', name: 'Tide', role: 'Zoner', walk: 0.9, orb: 1.1, blink: 1.0, scale: 1.0,
-        desc: 'A water caster with a long staff. Sweeping reach, a slightly faster Core orb, a touch slower on foot.',
+        desc: 'A water caster with a long staff. Sweeping reach and long-range water specials.',
         look: { suit: 0x0c4a6e, trim: 0x7dd3fc, head: 'fin', weapon: 'staff', anim: 'staff', extra: 'staffback' },
         art: { skin: '#7dd3fc', feature: 'fin' },
     },
     volt: {
         id: 'volt', name: 'Volt', role: 'Rushdown', walk: 1.2, orb: 1.05, blink: 1.2, scale: 0.97,
-        desc: 'A bare-fisted sprinter crackling with static. Fast, rapid punches and double stomps, long Blink.',
+        desc: 'A bare-fisted sprinter crackling with static. Fast, rapid punches and double stomps, shocking specials.',
         look: { suit: 0x1e1b4b, trim: 0xfde047, head: 'spikes', weapon: 'fist', anim: 'rush', extra: 'bolt' },
         art: { skin: '#fde047', feature: 'spikes' },
     },
@@ -49,12 +50,22 @@ export const CHARS = {
     },
     terra: {
         id: 'terra', name: 'Terra', role: 'Heavy', walk: 0.62, orb: 0.8, blink: 0.75, scale: 1.2,
-        desc: 'A rock golem. The slowest walker, with huge fists and a heavy, slow Core orb. Hits like a landslide.',
+        desc: 'A rock golem. The slowest walker, with huge fists and slow, crushing specials. Hits like a landslide.',
         look: { suit: 0x292524, trim: 0xa8a29e, head: 'rocks', weapon: 'fist', anim: 'heavy', extra: 'rocks' },
         art: { skin: '#a8a29e', feature: 'rocks' },
     },
 };
 
+// knockback taken scales with speed: the slowest walker (Terra) takes 0.6x, the fastest (Zephyr) 1.5x, proportional in between.
+// jumps in the air: 3 minimum, 5 maximum; slow tanks recover worst, the fastest has the most.
+const JUMPS = { luminent: 3, bulwark: 3, zephyr: 5, ember: 4, tide: 4, volt: 4, umbra: 4, terra: 3 };
+for (const c of Object.values(CHARS)) {
+    const w = c.walk;
+    c.kb = Math.round((w < 1 ? 1 - 0.4 * (1 - w) / 0.38 : 1 + 0.5 * (w - 1) / 0.35) * 1000) / 1000;
+    c.jumps = JUMPS[c.id];
+    const sp = SP[c.id];
+    c.specials = [['Hold F', sp.N], ['Side F', sp.S], ['Up F', sp.U], ['Down F (ground)', sp.DG], ['Down F (air)', sp.DA]].map(([k, v]) => ({ key: k, name: v.name, desc: v.desc }));
+}
 export const charOf = (id) => CHARS[id] || CHARS[DEFAULT_CHAR];
 
 const KEY = 'luminary.char';

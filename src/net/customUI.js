@@ -7,11 +7,11 @@ import { ITEM_TYPES, ITEM_INFO, ITEM_INTERVAL_MIN, ITEM_INTERVAL_MAX } from '../
 
 // ---- saved custom settings (up to 10, stored on this device)
 const PKEY = 'luminary.presets.v1', MAX_PRESETS = 10;
-const SKEYS = ['teams', 'startDamage', 'stocks', 'mode', 'timeLimit', 'items'];
+const SKEYS = ['teams', 'startDamage', 'stocks', 'mode', 'timeLimit', 'items', 'map'];
 const loadPresets = () => { try { const a = JSON.parse(localStorage.getItem(PKEY) || '[]'); return Array.isArray(a) ? a.slice(0, MAX_PRESETS) : []; } catch (e) { return []; } };
 const savePresets = (a) => { try { localStorage.setItem(PKEY, JSON.stringify(a)); } catch (e) { /* storage blocked */ } };
 const pickSettings = (st) => JSON.parse(JSON.stringify(Object.fromEntries(SKEYS.map(k => [k, st[k]]))));
-const describe = (st) => `${st.teams ? 'Teams' : 'FFA'} • ${st.mode === 'timer' ? st.timeLimit + ' min timer' : st.stocks + ' stocks'} • ${st.startDamage}%${st.items && st.items.on ? ' • items' : ''}`;
+const describe = (st) => `${st.teams ? 'Teams' : 'FFA'} • ${st.mode === 'timer' ? st.timeLimit + ' min timer' : st.stocks + ' stocks'} • ${st.startDamage}% • ${st.map === 'frontier' ? '€Frontier' : '¥Frontier'}${st.items && st.items.on ? ' • items' : ''}`;
 
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const TEAMS = { red: '#ef4444', blue: '#3b82f6', yellow: '#facc15', green: '#22c55e' };
@@ -89,6 +89,7 @@ export class CustomUI {
         else if (a === 'bot') { if (!addBot(b.dataset.level)) { this.msg = 'The lobby is full (8)'; this.render(); } }
         else if (a === 'dmg') { const st = Online.lobby.settings; setLobbySetting(b.dataset.k, Math.max(b.dataset.k === 'stocks' || b.dataset.k === 'timeLimit' ? 1 : 0, Math.min(b.dataset.k === 'stocks' ? 10 : b.dataset.k === 'timeLimit' ? 10 : 249, (+st[b.dataset.k] || 0) + (+b.dataset.d)))); }
         else if (a === 'smode') setLobbySetting('mode', b.dataset.v);
+        else if (a === 'map') setLobbySetting('map', b.dataset.v);
         else if (a === 'itemson') this.setItems({ on: !this.items().on });
         else if (a === 'itemall') { const it = this.items(); this.setItems({ types: it.types.length === ITEM_TYPES.length ? [] : ITEM_TYPES.slice() }); }
         else if (a === 'item') { const it = this.items(), t = b.dataset.t; this.setItems({ types: it.types.includes(t) ? it.types.filter(x => x !== t) : ITEM_TYPES.filter(x => x === t || it.types.includes(x)) }); }
@@ -145,6 +146,7 @@ export class CustomUI {
             <div class="lm-card"><h4>Match settings</h4>
               <div class="lm-setrow"><span>Mode</span><span><button class="lm-btn ${st.teams ? 'lm-btn-ghost' : ''} lm-mini" data-a="mode" data-v="ffa">Free for all</button> <button class="lm-btn ${st.teams ? '' : 'lm-btn-ghost'} lm-mini" data-a="mode" data-v="teams">Teams</button></span></div>
               <div class="lm-setrow"><span>Win by</span><span><button class="lm-btn ${timer ? 'lm-btn-ghost' : ''} lm-mini" data-a="smode" data-v="stock">Stocks</button> <button class="lm-btn ${timer ? '' : 'lm-btn-ghost'} lm-mini" data-a="smode" data-v="timer">Timer (kills)</button></span></div>
+              <div class="lm-setrow"><span>Map</span><span><button class="lm-btn ${st.map === 'frontier' ? '' : 'lm-btn-ghost'} lm-mini" data-a="map" data-v="frontier">€Frontier</button> <button class="lm-btn ${st.map === 'frontier' ? 'lm-btn-ghost' : ''} lm-mini" data-a="map" data-v="big">¥Frontier</button></span></div>
               <div class="lm-setrow"><span>Starting damage %</span><span class="lm-step"><button class="lm-btn lm-btn-ghost lm-mini" data-a="dmg" data-k="startDamage" data-d="-10">−</button><input data-dmg type="number" min="0" max="249" step="10" value="${st.startDamage}"><button class="lm-btn lm-btn-ghost lm-mini" data-a="dmg" data-k="startDamage" data-d="10">+</button></span></div>
               ${timer
                 ? `<div class="lm-setrow"><span>Time limit (min)</span><span class="lm-step"><button class="lm-btn lm-btn-ghost lm-mini" data-a="dmg" data-k="timeLimit" data-d="-1">−</button><input data-tlim type="number" min="1" max="10" value="${st.timeLimit}"><button class="lm-btn lm-btn-ghost lm-mini" data-a="dmg" data-k="timeLimit" data-d="1">+</button></span></div>`

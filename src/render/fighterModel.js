@@ -723,7 +723,7 @@ export class FighterModel {
         const airNow = !f.grounded && !f.isHanging;
         this.tugT += dt;
         if (airNow && this.wasAir && f.jumpsLeft < this.lastJumps) {   // mid-air jump -> somersault (balloon jumps tug the string instead)
-            if (f.balloon && f.maxJumps - f.jumpsLeft > 4) this.tugT = 0; else this.flipT = 0;
+            if (f.balloon && f.maxJumps - f.jumpsLeft > charOf(f.char).jumps) this.tugT = 0; else this.flipT = 0;
         }
         this.wasAir = airNow;
         this.lastJumps = f.jumpsLeft;

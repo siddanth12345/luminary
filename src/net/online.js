@@ -20,7 +20,7 @@ export function cleanItems(i) {
     const types = Array.isArray(i.types) ? ITEM_TYPES.filter(t => i.types.includes(t)) : ITEM_TYPES.slice();
     return { on: !!i.on, types, interval: Math.max(ITEM_INTERVAL_MIN, Math.min(ITEM_INTERVAL_MAX, Math.round(+i.interval) || ITEM_DEFAULT.interval)) };
 }
-export const defaultSettings = () => ({ teams: false, startDamage: 0, stocks: 3, mode: 'stock', timeLimit: 5, items: cleanItems(ITEM_DEFAULT) });
+export const defaultSettings = () => ({ teams: false, startDamage: 0, stocks: 3, mode: 'stock', timeLimit: 5, map: 'big', items: cleanItems(ITEM_DEFAULT) });
 export const Online = {
     role: null,           // 'host' | 'guest' | null
     code: '',
@@ -146,6 +146,7 @@ export function setLobbySetting(k, v) {
     if (k === 'startDamage') v = Math.max(0, Math.min(249, Math.round(+v) || 0));
     if (k === 'timeLimit') v = Math.max(1, Math.min(10, Math.round(+v) || 5));
     if (k === 'items') v = cleanItems(v);
+    if (k === 'map') v = v === 'frontier' ? 'frontier' : 'big';
     if (JSON.stringify(Online.lobby.settings[k]) === JSON.stringify(v)) return;       // no change: don't rebuild the panel under the user's mouse
     Online.lobby.settings[k] = v; lobbyPush();
 }
@@ -180,7 +181,7 @@ export function beginLobbyMatch() {
     const L = Online.lobby;
     if (L.members.length < 2) { Online.note = 'You need at least 2 players'; Online.onChange(); return false; }
     L.started = true;
-    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null, char: x.char || 'luminent' })), teams: L.settings.teams, startDamage: Math.min(249, +L.settings.startDamage || 0), stocks: +L.settings.stocks || 3, mode: L.settings.mode === 'timer' ? 'timer' : 'stock', timeLimit: +L.settings.timeLimit || 5, items: cleanItems(L.settings.items) };
+    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null, char: x.char || 'luminent' })), teams: L.settings.teams, startDamage: Math.min(249, +L.settings.startDamage || 0), stocks: +L.settings.stocks || 3, mode: L.settings.mode === 'timer' ? 'timer' : 'stock', timeLimit: +L.settings.timeLimit || 5, map: L.settings.map === 'frontier' ? 'frontier' : 'big', items: cleanItems(L.settings.items) };
     S.online = 'host'; S.opponentName = null;
     NETHOOK.send = (snap) => Online.t && Online.t.send({ t: 'snap', s: snap });
     Online.t.send({ t: 'start', cfg });
