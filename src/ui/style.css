@@ -320,3 +320,44 @@ body.touch-ui .lm-fs,body.touch-ui .lm-fs{display:flex}
 .lm-pbtns{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
 .lm-preset input{width:100%;background:#0f1a2c;border:1px solid #22d3ee;border-radius:8px;color:#fff;padding:6px 8px;font-weight:700}
 .lm-danger{color:#fca5a5}
+
+/* ---- character select */
+.ch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:10px}
+.ch-card{display:flex;flex-direction:column;gap:6px}
+.ch-pick{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:10px;border-radius:16px;border:2px solid #1b2c44;background:linear-gradient(180deg,#0f1a2c,#0a1322);cursor:pointer;text-align:left;transition:transform .15s,border-color .18s,box-shadow .18s}
+.ch-pick:hover{transform:translateY(-2px);border-color:var(--ac)}
+.ch-pick:active{transform:scale(.98)}
+.ch-card.on .ch-pick{border-color:var(--ac);box-shadow:0 0 0 1px var(--ac),0 0 22px color-mix(in srgb,var(--ac) 45%,transparent)}
+.ch-art{width:100%;aspect-ratio:1/1;max-height:150px;display:flex;justify-content:center;overflow:hidden;border-radius:12px;background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--ac) 22%,#0b1220),#0b1220)}
+.ch-art svg{height:100%;width:auto}
+.ch-meta{display:flex;flex-direction:column;gap:2px}
+.ch-meta b{color:#fff;font-size:15px;letter-spacing:.04em}
+.ch-meta span{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.ch-bar{height:5px;border-radius:5px;background:#13233a;overflow:hidden;margin-top:4px}
+.ch-bar i{display:block;height:100%;background:var(--ac)}
+.ch-tag{position:absolute;top:8px;left:8px;padding:2px 8px;border-radius:999px;background:var(--ac);color:#02131a;font:800 9px/1.6 system-ui;letter-spacing:.1em;text-transform:uppercase;font-style:normal}
+.ch-info{position:absolute;top:8px;right:8px}
+.ch-desc{font-size:12px;line-height:1.5;color:#a5b4c8;padding:8px 10px;border-radius:10px;background:#0a1626;border-left:3px solid var(--ac)}
+.ch-desc small{color:#7b8ba3}
+.lm-charsel{background:#0a1626;border:1px solid #27465c;border-radius:8px;color:#e2e8f0;padding:3px 6px;font-size:11px;font-weight:700}
+
+/* ---- CBG title + loading screen */
+.cbg-title{font-weight:900;letter-spacing:.04em;line-height:1;text-transform:uppercase;font-size:clamp(1.5rem,5.4vw,2.9rem);margin-bottom:.4rem;white-space:nowrap;flex-wrap:nowrap;display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:0 .35em;text-shadow:0 6px 30px rgba(0,0,0,.55)}
+.cbg-title .cw{display:inline-flex;align-items:baseline;white-space:nowrap}
+.cbg-title .cr{font-size:1.5em;color:#ef4444;text-shadow:0 0 22px rgba(239,68,68,.65),0 4px 0 #7f1d1d;font-weight:900}
+.cbg-title .cu{color:#38bdf8;text-shadow:0 0 18px rgba(56,189,248,.5);display:inline-block;max-width:4em;overflow:hidden;white-space:nowrap;transition:max-width .7s cubic-bezier(.2,.9,.2,1),opacity .5s;transform-origin:left bottom}
+.cbg-title.collapsed .cu{max-width:0;opacity:0}
+.cbg-title.collapsed{gap:0 .6em}
+.cbg-title.pop .cu{animation:cbgpop .7s cubic-bezier(.2,1.4,.3,1) both}
+@keyframes cbgpop{0%{transform:scale(.2) translateY(30px);opacity:0}60%{transform:scale(1.25);opacity:1}100%{transform:scale(1)}}
+.cbg-loader{position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#0b1530 0%,#060913 75%);transition:background .6s,opacity .5s}
+.cbg-loader.fade{background:transparent;pointer-events:none}
+.cbg-loader.gone{display:none}
+.cbg-lstage{position:relative;display:flex;flex-direction:column;align-items:center;gap:26px;padding:0 14px}
+.cbg-loader .cbg-title{font-size:clamp(3rem,16vw,8rem);transition:none}
+.cbg-enter{position:relative;padding:14px 40px;border-radius:16px;border:2px solid #38bdf8;background:linear-gradient(180deg,#0e3a52,#0a2740);color:#e0f2fe;font:800 16px system-ui,sans-serif;letter-spacing:.18em;text-transform:uppercase;box-shadow:0 0 26px rgba(56,189,248,.35);transition:transform .15s,box-shadow .2s,opacity .3s}
+.cbg-enter:not(:disabled){animation:cbgbeat 1.4s ease-in-out infinite}
+.cbg-enter:disabled{opacity:.6}
+.cbg-enter:active{transform:scale(.95)}
+@keyframes cbgbeat{50%{box-shadow:0 0 44px rgba(56,189,248,.8);transform:scale(1.04)}}
+.cbg-shard{position:fixed;z-index:410;pointer-events:none;font:900 22px system-ui;color:#38bdf8;text-shadow:0 0 10px #38bdf8;will-change:transform,opacity}

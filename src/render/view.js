@@ -12,6 +12,7 @@ import { buildStage } from './stage.js';
 import { FighterModel } from './fighterModel.js';
 import { Effects } from './effects.js';
 import { ItemsView } from './items.js';
+import { getGfx } from '../gfx.js';
 
 const FOV = 38;
 const PITCH = 7 * Math.PI / 180;   // slight look-down so the platform top reads in 3D
@@ -20,7 +21,7 @@ export class View {
     constructor(canvas) {
         this.canvas = canvas;
         const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-        this.pr = Math.min(window.devicePixelRatio || 1, 1.5);
+        this.pr = Math.min(window.devicePixelRatio || 1, 2);
         r.setPixelRatio(this.pr);
         this.q = 0; this.ft = 0; this.inMatch = undefined;
         r.outputColorSpace = THREE.SRGBColorSpace;
@@ -66,7 +67,7 @@ export class View {
         this.arenaVersion = S.arenaVersion || 0;
 
         // ---- post
-        const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: (window.innerWidth < 900 ? 0 : 2) });
+        const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
         this.composer = new EffectComposer(r, rt);
         this.composer.addPass(new RenderPass(scene, this.camera));
         this.bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), 0.5, 0.55, 0.92);
@@ -81,6 +82,7 @@ export class View {
         this.clock = 0;
         this.resize();
         window.addEventListener('resize', () => this.resize());
+        window.addEventListener('cbg-gfx', () => { this.q = 0; this.qT = 0; this.applyQuality(); });
     }
 
     makeModel(f, i) {
@@ -105,13 +107,15 @@ export class View {
         }
         fighters.forEach((f, i) => {
             const m = this.models[i];
-            if (m.builtColor !== f.color) { m.dispose(); this.models[i] = this.makeModel(f, i); this.fx.models = this.models; }
+            if (m.builtColor !== f.color || m.builtChar !== f.char) { m.dispose(); this.models[i] = this.makeModel(f, i); this.fx.models = this.models; }
         });
     }
 
     applyQuality() {
-        const q = this.q, cap = Math.min(window.devicePixelRatio || 1, 1.5);
-        const pr = q >= 4 ? 0.6 : q >= 3 ? 0.8 : Math.min(cap, q >= 2 ? 1 : cap);
+        const g = getGfx(), dpr = window.devicePixelRatio || 1;
+        const q = g === 'high' ? 0 : g === 'medium' ? 1 : g === 'low' ? 2 : this.q;       // auto uses the frame-time ladder
+        const cap = g === 'high' ? Math.min(dpr, 2) : g === 'low' ? 1 : g === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2);
+        const pr = q >= 4 ? 0.75 : q >= 3 ? 1 : Math.min(cap, q >= 2 ? Math.min(cap, 1.25) : cap);
         if (pr !== this.pr) { this.pr = pr; this.renderer.setPixelRatio(pr); this.resize(); }
         const m = this.inMatch !== false;
         this.bloom.enabled = m && q < 1;
@@ -229,8 +233,8 @@ export class View {
         this.ft = this.ft ? this.ft * 0.92 + dt * 0.08 : dt;
         this.qT = (this.qT || 0) + dt;
         if (this.qT > 1.2) {
-            if (this.ft > 1 / 30 && this.q < 4) { this.q++; this.qT = 0; this.applyQuality(); }
-            else if (this.ft < 1 / 58 && this.q > 0 && this.qT > 8) { this.q--; this.qT = 0; this.applyQuality(); }
+            if (getGfx() === 'auto' && this.ft > 1 / 30 && this.q < 4) { this.q++; this.qT = 0; this.applyQuality(); }
+            else if (getGfx() === 'auto' && this.ft < 1 / 58 && this.q > 0 && this.qT > 8) { this.q--; this.qT = 0; this.applyQuality(); }
             else if (this.ft < 1 / 30) this.qT = Math.min(this.qT, 1.2);
         }
 

@@ -136,7 +136,8 @@ export class ItemsView {
                 this.scene.add(g); e = { g, type: it.type }; this.map.set(it.id, e);
             }
             const g = e.g;
-            g.visible = true;
+            g.visible = !(it.type === 'FIRESTICK' && it.st === 'held');       // a held stick is drawn in the holder's hand by the fighter model
+            if (!g.visible) continue;
             const px = wx(it.x), py = wy(it.y);
             if (it.type === 'FIRESTICK') {
                 const L = STICK_UNIT * (it.len || 5);

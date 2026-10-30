@@ -85,8 +85,8 @@ const STEPS = [
         check: () => p1.isRolling,
     },
     {
-        title: 'Luminary Core',
-        text: (m) => m ? `<b>Hold the red centre</b> to charge a Luminary Core. While it charges you can <b>drag the red button</b> to aim it, then release to fire.` : `Hold ${K('special')} to charge a Luminary Core, then release. It flies straight along your aim (no homing).`,
+        title: 'CBG Core',
+        text: (m) => m ? `<b>Hold the red centre</b> to charge a CBG Core. While it charges you can <b>drag the red button</b> to aim it, then release to fire.` : `Hold ${K('special')} to charge a CBG Core, then release. It flies straight along your aim (no homing).`,
         init: () => ({}),
         check: () => p1.specialKind === 'CORE',
     },

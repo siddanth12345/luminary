@@ -163,7 +163,7 @@ export class TouchControls {
         let g = null;
         const dirButton = (d) => this.refs.matrix.querySelector(`.tz-dir[data-dir="${d}"]`);
         const clearSel = () => { for (const b of this.refs.matrix.querySelectorAll('.tz-dir')) b.classList.remove('sel'); };
-        const showAim = (v) => { if (!aimEl) return; if (!v) { aimEl.classList.remove('on'); return; } aimEl.classList.add('on'); aimEl.style.transform = `translateY(-50%) rotate(${Math.atan2(v[1], v[0])}rad)`; };
+        const showAim = (v) => { mouse.touchAim = v || null; if (!aimEl) return; if (!v) { aimEl.classList.remove('on'); return; } aimEl.classList.add('on'); aimEl.style.transform = `translateY(-50%) rotate(${Math.atan2(v[1], v[0])}rad)`; };
         main.addEventListener('pointerdown', (e) => {
             if (g) return;
             e.preventDefault(); e.stopPropagation(); main.setPointerCapture(e.pointerId);
@@ -191,12 +191,13 @@ export class TouchControls {
             if (len > this.geo.d * 0.45) sel = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'SIDE_LEFT' : 'SIDE_RIGHT') : (dy < 0 ? 'UP' : 'DOWN');
             if (sel !== g.sel) { g.sel = sel; clearSel(); if (sel) dirButton(sel).classList.add('sel'); }
             if (len > 10) g.aim = [dx / len, dy / len]; else g.aim = null;
+            mouse.touchAim = g.aim;                                   // the dotted guide shows what the grid is aiming
         });
         const mainEnd = (e) => {
             if (!g || e.pointerId !== g.id) return;
             clearTimeout(g.timer);
             const s = g; g = null;
-            main.classList.remove('down', 'charging'); main.style.transform = ''; clearSel(); showAim(null);
+            main.classList.remove('down', 'charging'); main.style.transform = ''; clearSel(); showAim(null); mouse.touchAim = null;
             if (e.type === 'pointercancel') { if (s.charging) this.api.cancelF(); return; }
             if (s.sel) { this.act('special', s.sel); this.api.releaseAction('special'); }          // directional F move
             else if (s.charging) {                                                                  // release the Core where it was aimed
@@ -213,7 +214,7 @@ export class TouchControls {
         // ---------------------------------------------------------- grab: drag to AIM, release to throw the grab (or use / throw an item). It springs back when let go.
         const gb = this.refs.grab, gAim = gb.querySelector('.tz-aim');
         let gg = null;
-        const gShow = (v) => { if (!v) { gAim.classList.remove('on'); return; } gAim.classList.add('on'); gAim.style.transform = `translateY(-50%) rotate(${Math.atan2(v[1], v[0])}rad)`; };
+        const gShow = (v) => { mouse.touchAim = v || null; if (!v) { gAim.classList.remove('on'); return; } gAim.classList.add('on'); gAim.style.transform = `translateY(-50%) rotate(${Math.atan2(v[1], v[0])}rad)`; };
         gb.addEventListener('pointerdown', (e) => {
             if (gg) return;
             e.preventDefault(); e.stopPropagation(); gb.setPointerCapture(e.pointerId);

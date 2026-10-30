@@ -5,6 +5,7 @@
 // Local model space: +Y up, +Z = the way the fighter faces, +X = the fighter's right arm.
 // The rig is mirrored for left/right facing by yawing the whole model, so every pose below
 // is authored once, facing forward.
+import { charOf } from '../characters.js';
 import * as THREE from 'three';
 import { S } from '../core.js';
 import { wx, wy, clamp01, lerp, smooth, seg, D2R } from './space.js';
@@ -97,8 +98,10 @@ export class FighterModel {
 
         const armor = this.#mat(base.clone().multiplyScalar(0.62), { metal: 0.6, rough: 0.3, tint: '#7a7f89' });
         const armorDark = this.#mat(base.clone().multiplyScalar(0.26), { metal: 0.6, rough: 0.38, tint: '#4a4f58' });
-        const suit = this.#mat(0x0f172a, { metal: 0.25, rough: 0.65 });
-        const trim = this.#mat(0xcbd5e1, { metal: 0.85, rough: 0.22 });
+        const CH = charOf(f.char), L = CH.look;
+        this.builtChar = f.char; this.charLook = L;
+        const suit = this.#mat(L.suit, { metal: 0.25, rough: 0.65 });
+        const trim = this.#mat(L.trim, { metal: 0.85, rough: 0.22 });
         const glow = this.#mat(base.clone().multiplyScalar(0.25), { emissive: base, ei: 2.6, tint: '#5a5f68' });
         this.glowMat = glow;
 
@@ -109,6 +112,8 @@ export class FighterModel {
         this.root = new THREE.Group();
         this.flip = G(this.root);
         this.yawG = G(this.flip);
+        const csc = CH.scale || 1; this.flip.scale.setScalar(csc); this.flip.position.y = 41 * (csc - 1);
+        this.charScale = csc;
         this.tilt = G(this.yawG);
         this.scene.add(this.root);
 
@@ -151,10 +156,11 @@ export class FighterModel {
             const ear = M(new THREE.CylinderGeometry(2.8, 2.8, 2.6, 14), trim); ear.rotation.z = Math.PI / 2; ear.position.set(s * 9.4, 9.6, 0); head.add(ear);
             const earG = M(new THREE.CylinderGeometry(1.4, 1.4, 2.9, 10), glow); earG.rotation.z = Math.PI / 2; earG.position.set(s * 9.5, 9.6, 0); head.add(earG);
         }
-        if (this.variant === 'hero') {
+        const ac = (op) => new THREE.Color(base).multiplyScalar(op);
+        if (L.head === 'crest' && this.variant === 'hero') {
             const crest = M(new THREE.BoxGeometry(1.8, 8, 13), armorDark); crest.position.set(0, 18.4, -1.4); crest.rotation.x = -0.22; head.add(crest);
             const stripe = M(new THREE.BoxGeometry(2.1, 1.2, 12), glow); stripe.position.set(0, 21.6, -2.2); stripe.rotation.x = -0.22; head.add(stripe);
-        } else {
+        } else if (L.head === 'crest') {
             for (const s of [-1, 1]) {
                 const horn = M(new THREE.ConeGeometry(2.6, 13, 7), armorDark); horn.position.set(s * 6.2, 18.4, -1.2);
                 horn.rotation.set(-0.35, 0, -s * 0.5); head.add(horn);
@@ -162,6 +168,51 @@ export class FighterModel {
                 tip.rotation.set(-0.35, 0, -s * 0.5); head.add(tip);
             }
         }
+
+        this.sway = [];                                       // trailing bits (scarf, ribbons, cape) that swing with movement
+        const trailer = (parent, w, h, x, y, z, mat, kind) => { const g = G(parent, x, y, z); const m = M(new THREE.BoxGeometry(w, h, 0.9), mat); m.position.y = -h / 2; g.add(m); g.userData.kind = kind; this.sway.push(g); return g; };
+        const HM = {
+            bucket: () => {
+                const h2 = M(new THREE.BoxGeometry(19.6, 6, 18), armorDark); h2.position.set(0, 20, 0); head.add(h2);
+                const fin = M(new THREE.BoxGeometry(2.4, 12, 16), glow); fin.position.set(0, 24, -1); head.add(fin);
+                for (const sd of [-1, 1]) { const ch = M(new THREE.BoxGeometry(2.4, 8, 8), trim); ch.position.set(sd * 9.8, 6, 4); head.add(ch); }
+            },
+            ribbon: () => {
+                const band = M(new THREE.TorusGeometry(9.8, 1.1, 6, 24), glow); band.rotation.x = Math.PI / 2; band.position.y = 12.4; head.add(band);
+                for (const dy of [0, 3]) trailer(head, 3.2, 20, 0, 13 - dy, -9, glow, 'ribbon');
+            },
+            flame: () => {
+                for (let i = -2; i <= 2; i++) {
+                    const c = M(new THREE.ConeGeometry(2.8 - Math.abs(i) * 0.4, 11 - Math.abs(i) * 1.6, 6), glow);
+                    c.position.set(i * 3.4, 20.5 - Math.abs(i) * 0.8, -1.5); c.rotation.z = -i * 0.22; head.add(c);
+                }
+            },
+            fin: () => {
+                for (let i = 0; i < 3; i++) {
+                    const c = M(new THREE.ConeGeometry(2.4, 12 - i * 2, 4), glow);
+                    c.position.set(0, 18.5 - i * 0.8, -3 - i * 3.6); c.rotation.x = -0.9 - i * 0.2; head.add(c);
+                }
+                for (const sd of [-1, 1]) { const f2 = M(new THREE.ConeGeometry(2.6, 9, 4), trim); f2.rotation.z = Math.PI / 2 * -sd; f2.position.set(sd * 11.4, 11, 0); head.add(f2); }
+            },
+            spikes: () => {
+                for (let i = 0; i < 6; i++) {
+                    const a = (i / 5 - 0.5) * 2.2;
+                    const c = M(new THREE.ConeGeometry(1.8, 12, 4), glow);
+                    c.position.set(Math.sin(a) * 6.5, 20 + Math.cos(a) * 3, -2); c.rotation.z = -a * 0.9; head.add(c);
+                }
+            },
+            hood: () => {
+                const hd = M(new THREE.SphereGeometry(10.8, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), suit); hd.position.set(0, 10.2, -1.4); hd.scale.set(1.04, 1.06, 1.1); head.add(hd);
+                const tip = M(new THREE.ConeGeometry(4.2, 12, 8), suit); tip.position.set(0, 21, -7); tip.rotation.x = -1.1; head.add(tip);
+            },
+            rocks: () => {
+                for (let i = 0; i < 5; i++) {
+                    const c = M(new THREE.DodecahedronGeometry(3.2 + (i % 2), 0), armorDark);
+                    c.position.set((i - 2) * 4.6, 19 + (i % 2) * 1.6, -1 + (i % 3)); c.rotation.set(i, i * 2, 0); head.add(c);
+                }
+            },
+        };
+        if (HM[L.head]) HM[L.head]();
 
         // arms
         const makeArm = (s) => {
@@ -197,6 +248,8 @@ export class FighterModel {
         this.legR = makeLeg(1);
         this.legL = makeLeg(-1);
 
+        this.#bodyExtras(L, { M, G, armor, armorDark, suit, trim, glow, cap, trailer });
+
         // blade of light, held in the right hand
         const wr = this.armR.wr;
         this.bladeG = G(wr, 0, 0, 0);
@@ -213,8 +266,104 @@ export class FighterModel {
         this.bladeTipM = G(this.blade, 0, -1, 0);
         this.bladeBaseM = G(this.blade, 0, 0, 0);
         this.bladeG.visible = false;
+        this.bladeParts = [hilt, guard, core, outer];
+        this.bladeCore = core; this.bladeOuter = outer;
+        this.#weaponStyle(L, { M, G, trim, glow, hilt, guard, core, outer });
+        // firestick: lives in the right hand, so it follows every arm swing (and drags a little behind it)
+        this.stickG = G(wr, 0, 0, 0);
+        this.stickG.visible = false;
+        const wood = M(new THREE.CylinderGeometry(1.5, 1.9, 1, 8), this.#mat(0x7c4a21, { rough: 0.85 })); wood.name = 'wood'; this.stickG.add(wood);
+        const wrap = M(new THREE.CylinderGeometry(2.2, 2.2, 6, 8), this.#mat(0x1f2937, { rough: 0.7 })); this.stickG.add(wrap);
+        const fl = G(this.stickG, 0, 0, 0);
+        const fo = new THREE.Mesh(new THREE.ConeGeometry(6.2, 17, 9), new THREE.MeshBasicMaterial({ color: new THREE.Color('#f97316').multiplyScalar(2), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+        fo.rotation.x = Math.PI; fo.position.y = -8; fl.add(fo);
+        const fi = new THREE.Mesh(new THREE.ConeGeometry(3, 11, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color('#fde047').multiplyScalar(2.4), transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+        fi.rotation.x = Math.PI; fi.position.y = -5; fl.add(fi);
+        this.stickFlame = fl; this.stickWood = wood; this.stickWrap = wrap; this.stickK = 0; this.stickRot = -2.1;
         this.fistMarkR = G(this.armR.wr, 0, -3, 0);
         this.fistMarkL = G(this.armL.wr, 0, -3, 0);
+    }
+
+    /** back / body props per character */
+    #bodyExtras(L, { M, G, armor, armorDark, suit, trim, glow, cap, trailer }) {
+        const torso = this.torso;
+        const X = {
+            shieldback: () => {
+                const sh = M(new THREE.CylinderGeometry(11, 11, 2.4, 6), armorDark); sh.rotation.x = Math.PI / 2; sh.position.set(0, 10.5, -9.6); torso.add(sh);
+                const em = M(new THREE.CylinderGeometry(5, 5, 2.8, 6), glow); em.rotation.x = Math.PI / 2; em.position.set(0, 10.5, -10); torso.add(em);
+                for (const sd of [-1, 1]) { const p = M(new THREE.SphereGeometry(6.4, 12, 10), armor); p.scale.set(1, 0.8, 1); p.position.set(sd * 12.6, 15, 0); torso.add(p); }
+            },
+            scarf: () => { trailer(torso, 4.6, 24, 0, 16, -4, glow, 'scarf'); trailer(torso, 3.6, 18, 3, 16, -4.5, trim, 'scarf'); },
+            sash: () => {
+                const sa = M(new THREE.BoxGeometry(17, 3, 12), glow); sa.position.set(0, 3.8, 0); this.pelvis.add(sa);
+                trailer(this.pelvis, 3.4, 14, 5, 3, 6, glow, 'sash');
+            },
+            staffback: () => {
+                const st = M(new THREE.CylinderGeometry(0.9, 0.9, 40, 8), trim); st.rotation.z = 0.5; st.position.set(0, 10, -8); torso.add(st);
+                const orb = M(new THREE.SphereGeometry(2.6, 12, 10), glow); orb.position.set(-9, 29, -8); torso.add(orb);
+            },
+            bolt: () => {
+                const b = M(new THREE.BoxGeometry(2.2, 9, 1.2), glow); b.position.set(0.8, 10.5, 7.8); b.rotation.z = 0.5; torso.add(b);
+                for (const sd of [-1, 1]) { const br = M(new THREE.CylinderGeometry(3.2, 3.2, 4, 10), glow); br.position.set(sd * 11, 2, 0); torso.add(br); }
+            },
+            cape: () => {
+                const cp = trailer(torso, 15, 30, 0, 17, -8.5, suit, 'cape');
+                for (const sd of [-1, 1]) { const dg = M(new THREE.BoxGeometry(1.2, 8, 1.8), trim); dg.position.set(sd * 6, -2, 6); dg.rotation.z = sd * 0.9; this.pelvis.add(dg); }
+            },
+            rocks: () => {
+                for (const sd of [-1, 1]) {
+                    const big = M(new THREE.DodecahedronGeometry(7.4, 0), armorDark); big.position.set(sd * 14, 15, 0); big.rotation.set(sd, 0.6, 0); torso.add(big);
+                    const sm = M(new THREE.DodecahedronGeometry(3.6, 0), armor); sm.position.set(sd * 6, 11, 7.4); torso.add(sm);
+                }
+                const cr = M(new THREE.DodecahedronGeometry(3.4, 0), glow); cr.position.set(0, 10.5, 7.6); torso.add(cr);
+            },
+        };
+        if (X[L.extra]) X[L.extra]();
+        if (L.anim === 'heavy' || L.anim === 'palm' || L.anim === 'kick' || L.anim === 'rush') {
+            for (const arm of [this.armR, this.armL]) {         // bigger / glowing fists for the bare-handed (and heavy) styles
+                const g = M(new THREE.SphereGeometry(L.anim === 'heavy' ? 5.2 : 4, 12, 10), glow); g.position.y = -3; arm.wr.add(g);
+            }
+        }
+        if (L.anim === 'kick' || L.anim === 'rush') {
+            for (const leg of [this.legR, this.legL]) { const g = M(new THREE.SphereGeometry(3.6, 10, 8), glow); g.position.set(0, -2, 4); leg.ank.add(g); }
+        }
+    }
+
+    /** how the held weapon looks per character (hitbox stays the same) */
+    #weaponStyle(L, { M, G, trim, glow, hilt, guard, core, outer }) {
+        const w = L.weapon;
+        this.weaponStyle = w;
+        if (w === 'slab') { outer.scale.x = 3.2; core.scale.x = 2.4; guard.scale.x = 2.6; outer.scale.z = 1.8; }
+        else if (w === 'staff') { outer.scale.x = 0.5; core.scale.x = 0.8; hilt.scale.y = 1.8; const orb = M(new THREE.SphereGeometry(3.2, 12, 10), glow); orb.position.y = -2; this.blade.add(orb); this.staffOrb = orb; }
+        else if (w === 'dagger') { outer.scale.x = 0.6; core.scale.x = 0.7; guard.scale.x = 0.8; }
+        else if (w === 'fist') { for (const m of [hilt, guard, core, outer]) m.userData.hide = true; }
+    }
+
+    /** per-character melee animation (same hitboxes: only the arms, legs and torso move differently) */
+    #charAnim(atk) {
+        const an = this.charLook.anim;
+        if (an === 'sword') return;
+        const o = atk.o, k = atk.kind, g = (v, d = 0) => (v === undefined ? d : v);
+        const side = k === 'SIDE_LEFT' || k === 'SIDE_RIGHT';
+        if (an === 'kick') {                                  // Zephyr: spins and kicks
+            if (k === 'JAB') { o.rHx = 78; o.lHx = -34; o.rK = 8; o.lK = 30; o.rSx = 104; o.lSx = 104; o.rSz = 40; o.lSz = 40; }
+            else if (side) { o.rHx = 104 * (atk.swing || 0); o.rK = 14; o.rSx = 36; o.lSx = 52; o.lHx = -14; o.torsoY = g(o.torsoY) * 0.4; }
+            else if (k === 'UP') { o.rHx = 165 * (atk.sw || 0); o.rK = 4; o.rSx = 30; o.lSx = 40; o.lHx = 0; }
+        } else if (an === 'palm') {                            // Ember: two-handed palm strikes
+            if (k === 'JAB' || k === 'UP' || side) { o.lSx = g(o.rSx); o.lE = g(o.rE, 6); o.lSz = g(o.rSz, 10); }
+        } else if (an === 'rush') {                            // Volt: flurries
+            if (side || k === 'JAB') { const fl = Math.sin(atk.u * 36) * 30 * atk.w; o.rSx = g(o.rSx) + fl; o.lSx = g(o.rSx) - 2 * fl; o.rE = 6; o.lE = 6; }
+            else if (k === 'UP') { o.lSx = g(o.rSx) - 20; }
+            else if (k === 'DOWN') { const st = Math.sin(atk.u * 30) * 24 * (atk.st || 0); o.rHx = g(o.rHx) + st; o.lHx = g(o.lHx) - st; }
+        } else if (an === 'dagger') {                          // Umbra: crossing slashes with both hands
+            if (side) { o.lSx = 150 * (atk.swing || 0) + 20; o.lSz = -20; o.lE = 12; o.rSz = 30 * (atk.swing || 0); }
+            else if (k === 'UP' || k === 'JAB') { o.lSx = g(o.rSx) * 0.7; o.lE = 8; }
+        } else if (an === 'staff') {                           // Tide: two-handed staff
+            if (k !== 'DOWN') { o.lSx = g(o.rSx) * 0.8; o.lE = g(o.rE) + 14; o.lSz = 14; }
+        } else if (an === 'heavy') {                           // Bulwark / Terra: slow wind-up, two-handed weight
+            o.lSx = g(o.rSx, g(o.lSx)); o.lE = g(o.rE, g(o.lE)); o.dy = g(o.dy) - 2.5 * atk.w; o.fwd = g(o.fwd) + 4 * atk.w;
+            o.lean = g(o.lean) * 1.4; if (o.torsoY !== undefined) o.torsoY *= 1.3;
+        }
     }
 
     #buildExtras() {
@@ -589,6 +738,7 @@ export class FighterModel {
         const pose = { ...this.cur };
         this.spinYaw = 0;
         const atk = this.#attackOverlay(alpha);
+        if (atk) this.#charAnim(atk);
         if (atk) {
             if (atk.spinYaw) this.spinYaw = atk.spinYaw * this.visFacing;
             for (const k in atk.o) pose[k] = lerp(pose[k], atk.o[k], atk.w);
@@ -625,12 +775,35 @@ export class FighterModel {
         this.legR.kn.rotation.set(pose.rK * D2R, 0, 0);
         this.legL.kn.rotation.set(pose.lK * D2R, 0, 0);
 
-        // blade + aura
+        // blade + aura (a held firestick replaces the light blade: same swing, longer reach, flame on the tip)
         const bl = clamp01(pose.blade);
+        const hs = f.heldItem && f.heldItem.type === 'FIRESTICK' && f.heldItem.st === 'held' ? f.heldItem : null;
+        const lenK = hs ? (hs.len || 5) : 1;
         this.bladeG.visible = bl > 0.02;
-        this.blade.scale.y = Math.max(0.001, BLADE_LEN * bl);
+        for (const m of this.bladeParts) m.visible = !hs && !m.userData.hide;
+        this.blade.scale.y = Math.max(0.001, BLADE_LEN * bl * (hs ? lenK * 0.5 : 1));
+        this.stickG.visible = !!hs;
+        if (hs) {
+            const L = BLADE_LEN * lenK * 0.5 + 14;                          // visual length follows the remaining length
+            this.stickK += (bl - this.stickK) * (1 - Math.exp(-dt * (bl > this.stickK ? 34 : 7)));   // slower on the way back: follow-through
+            const rest = this.stickRot + Math.sin(this.t * 3) * 0.05;
+            this.stickG.rotation.x = rest * (1 - this.stickK);
+            this.stickG.rotation.z = (1 - this.stickK) * 0.12 + Math.sin(this.stickK * Math.PI) * 0.18;
+            this.stickWood.scale.y = L; this.stickWood.position.y = -L / 2 + 8;
+            this.stickWrap.position.y = 2;
+            this.stickFlame.position.y = -L + 8;
+            this.stickFlame.scale.setScalar(0.8 + lenK * 0.08);
+            this.stickFlame.children[0].scale.y = 1 + Math.sin(this.t * 24) * 0.14;
+        }
         this.aura.visible = pose.aura > 0.05;
         if (this.aura.visible) this.aura.material.opacity = 0.34 * clamp01(pose.aura);
+
+        // trailing cloth / ribbons / cape
+        if (this.sway.length) {
+            const run = Math.min(1.1, Math.abs(f.vx) * 0.07), air = f.grounded ? 0 : Math.max(-0.5, Math.min(0.9, f.vy * 0.04));
+            this.sway.forEach((g, i) => { const big = g.userData.kind === 'cape' ? 0.5 : 1; g.rotation.x = (0.18 + run * big + air * 0.5 + Math.sin(this.t * 4 + i * 1.7) * 0.08 * big); g.rotation.z = Math.sin(this.t * 3 + i) * 0.06; });
+        }
+        if (this.staffOrb) this.staffOrb.scale.setScalar(1 + Math.sin(this.t * 5) * 0.12);
 
         // little life in the always-on parts
         this.halo.rotation.z = this.t * 0.8;

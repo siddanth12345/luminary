@@ -1,11 +1,11 @@
-# The Luminary 3D
+# Cool Battle Game (CBG)
 
 A Smash-style 3D arena fighter built with Three.js. Open `index.html` through any static server (e.g. `python3 -m http.server`).
 
 ## Controls
 - **A / D** move, **Space** jump, **Q** dash-grab, **E** shield, **E + scroll** roll (2 s cooldown)
 - **Left click** J attack (aim-matrix slash, hitbox follows the swing), **Right click** mouse dash
-- **F** specials: hold = Luminary Core (charge ≤ 1.5 s, straight orb at the cursor); tap + aim: Side = Blink Slash, Up = Rising Spiral, Down = Suplex (ground: dash-grab, carry up, slam) / Headbutt (air). Only 2 F moves in the air until you touch the ground.
+- **F** specials: hold = CBG Core (charge ≤ 1.5 s, straight orb at the cursor); tap + aim: Side = Blink Slash, Up = Rising Spiral, Down = Suplex (ground: dash-grab, carry up, slam) / Headbutt (air). Only 2 F moves in the air until you touch the ground.
 - After any move there's a 0.7 s lock (walking is free, jump unlocks after 0.3 s).
 
 ## Counters

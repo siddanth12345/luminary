@@ -2,6 +2,7 @@
 import { S } from './core.js';
 import { Guide } from './guide.js';
 import { getLayout, setMode } from './layout.js';
+import { getGfx, setGfx } from './gfx.js';
 import { ACTIONS, bindings, keyLabel, codeName, setBinding, resetBindings } from './controls.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -52,16 +53,16 @@ const PAGES = [
                 <div class="lm-card"><h4>Grab · PC <kbd>${k('grab')}</kbd> · Mobile: Grab button</h4>
                     <p>PC: aim with the mouse, press grab. Mobile: <b>drag the Grab button</b> toward your target and <b>release</b> (it snaps back; a grab only fires once aimed and released). Grab <b>beats shield</b>, loses to nearly everything else, and its knockback is 0.7x a melee and grows with damage. It also picks up and throws items.</p></div>
                 <div class="lm-card"><h4>Items (custom matches)</h4>
-                    <p>Grab an item to pick it up or use it. <b>Ball</b>: throw for 10 damage, bounces back, 2 throws. <b>Strawberry</b>: heals 30%. <b>Balloon</b>: 7 jumps (Jump). <b>Firestick</b>: 5x melee reach, shrinks 0.5 per hit. <b>Clock</b>: throw it, and after 1 s a bubble slows everything inside to 0.3x for 15 s.</p></div>
+                    <p>Grab an item to pick it up or use it. <b>Ball</b>: throw for 10 damage, bounces back, 2 throws. <b>Strawberry</b>: heals 30%. <b>Balloon</b>: 7 jumps (Jump); a melee hit pops it and floats the victim for 2 s. <b>Firestick</b>: 5x melee reach, shrinks 0.5 per hit; thrown like a spear it pins its victim for 15 damage until it lands. <b>Clock</b>: throw it, and after 1 s a bubble slows orbs and items inside to 0.3x for 15 s (never the fighters).</p></div>
             </div>`,
     },
     {
         title: 'F Specials',
         html: (k) => `
-            <p class="lm-lead"><kbd>${k('special')}</kbd> is your special. <b>Hold it</b> (mobile: hold the red centre, and you can drag it to aim while it charges) (or aim neutral) and you charge a Luminary Core. <b>Tap it</b> (released within 0.5 s) with your aim off-centre and you get a variant for that direction.</p>
+            <p class="lm-lead"><kbd>${k('special')}</kbd> is your special. <b>Hold it</b> (mobile: hold the red centre, and you can drag it to aim while it charges) (or aim neutral) and you charge a CBG Core. <b>Tap it</b> (released within 0.5 s) with your aim off-centre and you get a variant for that direction.</p>
             <table class="lm-table lm-wide">
                 <tr><th>Aim</th><th>Move</th><th>What it does</th></tr>
-                <tr><td>Neutral / hold</td><td><b>Luminary Core</b></td><td>Charge up to 1.05 s. Release fires a slowish orb in a straight line at your cursor (no homing). Full charge: bigger orb, more damage, bigger explosion, and it turns <b>purple</b> (blue fighter) or <b>orange</b> (red fighter). Walk at 1.5x speed while charging.</td></tr>
+                <tr><td>Neutral / hold</td><td><b>CBG Core</b></td><td>Charge up to 1.05 s. Release fires a slowish orb in a straight line at your cursor (no homing). Full charge: bigger orb, more damage, bigger explosion, and it turns <b>purple</b> (blue fighter) or <b>orange</b> (red fighter). Walk at 1.5x speed while charging.</td></tr>
                 <tr><td>Side</td><td><b>Blink Slash</b></td><td>Teleport 220 units and slash. Great for edgeguarding.</td></tr>
                 <tr><td>Up</td><td><b>Rising Spiral</b></td><td>Multi-hit rise for recovery. Costs no jumps. Extra lag if you miss the stage.</td></tr>
                 <tr><td>Down, on the ground</td><td><b>Suplex</b></td><td>A grab move: dash forward (it <b>homes in</b> on an opponent within 0.45 of the stage length; with nobody in range it is a blank dash), and if you catch them you carry them up and slam them down for 14 damage. It is a grab, so everything that beats a grab beats it (and it beats shields). Reaching the top of the map cancels it. No cooldown or get-up afterwards.</td></tr>
@@ -116,7 +117,7 @@ const PAGES = [
         html: () => `
             <div class="lm-grid">
                 <div class="lm-card"><h4>Move</h4><p>Touch anywhere on the <b>left half</b> of the screen: a joystick appears under your thumb. Left / right walks, pushing down drops through platforms.</p></div>
-                <div class="lm-card"><h4>Aim grid</h4><p><b>Tap the red centre</b> for the sword spin. <b>Tap an arrow</b> for the up / side / down melee, or <b>hold</b> it to charge. <b>Hold the red centre 0.4 s</b> for the neutral F (Luminary Core), or <b>drag it onto an arrow</b> for that F move (Spiral, Blink, Suplex / Headbutt).</p></div>
+                <div class="lm-card"><h4>Aim grid</h4><p><b>Tap the red centre</b> for the sword spin. <b>Tap an arrow</b> for the up / side / down melee, or <b>hold</b> it to charge. <b>Hold the red centre 0.4 s</b> for the neutral F (CBG Core), or <b>drag it onto an arrow</b> for that F move (Spiral, Blink, Suplex / Headbutt).</p></div>
                 <div class="lm-card"><h4>Shield &amp; grab</h4><p>Hold <b>Shield</b> (it does not drag). While shielding, move the joystick left or right to roll. Use the separate <b>Grab</b> button to grab: drag to aim, release to fire.</p></div>
                 <div class="lm-card"><h4>Jump</h4><p>Tap <b>Jump</b> (up to four in the air).</p></div>
                 <div class="lm-card"><h4>Your layout</h4><p>Open <b>Settings</b> and choose <b>Edit layout</b> to move the buttons and change their size. You can also force PC or Mobile controls there.</p></div>
@@ -244,10 +245,13 @@ export class UI {
     renderSettings() {
         const rows = this.set.querySelector('.lm-rows');
         const L = getLayout();
+        const gfx = getGfx();
         let group = '', html = `<h4 class="lm-group">Layout</h4>
             <div class="lm-row"><span>Control layout<small class="lm-sub">Auto uses touch controls on phones and tablets</small></span>
               <span class="lm-seg">${[['auto', 'Auto'], ['pc', 'PC'], ['mobile', 'Mobile']].map(([m, t]) => `<button class="lm-segb${L.mode === m ? ' on' : ''}" data-mode="${m}">${t}</button>`).join('')}</span></div>
             <div class="lm-row"><span>Mobile button layout<small class="lm-sub">Move the grid, jump and shield buttons and resize them</small></span><button class="lm-key" data-edit-layout>Edit layout…</button></div>
+            <div class="lm-row"><span>Graphics quality<small class="lm-sub">Auto adapts to your device. High is sharpest (phones look pixelated on Low)</small></span>
+              <span class="lm-seg">${[['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']].map(([m, t]) => `<button class="lm-segb${gfx === m ? ' on' : ''}" data-gfx="${m}">${t}</button>`).join('')}</span></div>
             <div class="lm-row"><span>Fullscreen</span><button class="lm-key" data-fs>Toggle</button></div>
             <h4 class="lm-group">PC controls (keyboard &amp; mouse)</h4>`;
         group = 'PC';
@@ -258,6 +262,7 @@ export class UI {
         html += `<div class="lm-row"><span>Roll (alternative)</span><span class="lm-fixed">Shield + Scroll wheel</span></div>`;
         rows.innerHTML = html;
         rows.querySelectorAll('.lm-key[data-action]').forEach(b => b.addEventListener('click', () => this.startCapture(b.dataset.action, b)));
+        rows.querySelectorAll('[data-gfx]').forEach(b => b.addEventListener('click', () => { setGfx(b.dataset.gfx); this.renderSettings(); }));
         rows.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); this.renderSettings(); }));
         const fs = rows.querySelector('[data-fs]');
         if (fs) fs.addEventListener('click', () => { try { if (document.fullscreenElement) document.exitFullscreen(); else { const p = document.documentElement.requestFullscreen(); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* not allowed here */ } });

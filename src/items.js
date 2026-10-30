@@ -12,15 +12,15 @@ export const ITEM_INFO = {
     },
     BALLOON: {
         name: 'Balloon', icon: '🎈',
-        desc: 'Grab it to get 7 jumps (until you are knocked out). After your normal 4 jumps you tug on the balloon string for the extra ones. Jump to use it.',
+        desc: 'Grab it to get 7 jumps (until you are knocked out). After your normal 4 jumps you tug on the balloon string for the extra ones. Jump to use it. Hitting someone with a melee while holding it pops it: they get knockback and 0.65x gravity for 2 seconds.',
     },
     FIRESTICK: {
         name: 'Firestick', icon: '🔥',
-        desc: 'Grab it and all your melee attacks get a 5x longer hitbox. The stick loses 0.5 length every time you hit or get hit, and burns out after 6 reductions. Aim a grab to throw it: it still hits with the same size, bounces back and also loses 0.5.',
+        desc: 'Grab it and all your melee attacks get a 5x longer hitbox. The stick loses 0.5 length every time you hit or get hit, and burns out after 6 reductions. Aim a grab to throw it like a spear: whoever it hits takes 15 damage and gets stuck to it until it hits the ground. If it flies below the stage tip they are freed and get their jumps back. Each hit costs it 0.5 length.',
     },
     CLOCK: {
         name: 'Clock', icon: '⏰',
-        desc: 'Grab it and aim a grab to throw it. One second after the throw it starts a time bubble: everything inside moves at 0.3x speed (gravity and knockback too). The bubble is as wide as the original map and lasts 15 seconds.',
+        desc: 'Grab it and aim a grab to throw it. One second after the throw it starts a time bubble: orbs and items inside move at 0.3x speed. Fighters are not affected. The bubble is as wide as the original map and lasts 15 seconds.',
     },
 };
 

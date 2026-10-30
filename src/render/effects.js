@@ -160,7 +160,7 @@ export class Effects {
             m.visible = false; m.renderOrder = 5; scene.add(m); this.hbPool.push(m);
         }
 
-        // ---- Luminary Core orbs (projectiles) and the charge orbs held by fighters
+        // ---- CBG Core orbs (projectiles) and the charge orbs held by fighters
         const orbCore = new THREE.SphereGeometry(1, 24, 18);
         const mkOrb = () => {
             const g = new THREE.Group();
@@ -538,12 +538,14 @@ export class Effects {
         });
 
         // ---- aim line
-        const show = S.gameState === 'playing';
+        const ta = mouse.touchMode ? mouse.touchAim : null;
+        const show = S.gameState === 'playing' && (!mouse.touchMode || !!ta);   // on phones the guide only shows while the grab / grid is being aimed
         this.aim.visible = show;
         if (show) {
             const a = this.aim.geometry.attributes.position;
             const me = fighters[S.mySlot || 0] || p1;
-            a.setXYZ(0, wx(me.x), wy(me.y), 3); a.setXYZ(1, wx(mouse.worldX), wy(mouse.worldY), 3);
+            a.setXYZ(0, wx(me.x), wy(me.y), 3);
+            if (ta) a.setXYZ(1, wx(me.x) + ta[0] * 520, wy(me.y) - ta[1] * 520, 3); else a.setXYZ(1, wx(mouse.worldX), wy(mouse.worldY), 3);
             a.needsUpdate = true;
             this.aim.computeLineDistances();
         }

@@ -1,7 +1,8 @@
 // Custom match: create / join a lobby (up to 8 players), pick FFA or teams, starting damage and stocks.
 import { S } from '../core.js';
-import { Online, hostRoom, joinRoom, leaveRoom, setLobbySetting, setMemberTeam, kickMember, beginLobbyMatch, addBot } from './online.js';
+import { Online, hostRoom, joinRoom, leaveRoom, setLobbySetting, setMemberTeam, setMemberChar, kickMember, beginLobbyMatch, addBot } from './online.js';
 import { Party } from './party.js';
+import { CHAR_IDS, CHARS, charOf } from '../characters.js';
 import { ITEM_TYPES, ITEM_INFO, ITEM_INTERVAL_MIN, ITEM_INTERVAL_MAX } from '../items.js';
 
 // ---- saved custom settings (up to 10, stored on this device)
@@ -35,6 +36,7 @@ export class CustomUI {
             if (e.target.matches('[data-code-in]')) { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, ''); this.joinCode = e.target.value; }
         });
         this.el.addEventListener('change', (e) => {
+            if (e.target.matches('[data-charsel]')) setMemberChar(+e.target.dataset.slot, e.target.value);
             if (e.target.matches('[data-dmg]')) setLobbySetting('startDamage', Math.max(0, Math.min(249, parseInt(e.target.value, 10) || 0)));
             if (e.target.matches('[data-stocks]')) setLobbySetting('stocks', Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 3)));
             if (e.target.matches('[data-tlim]')) setLobbySetting('timeLimit', Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 5)));
@@ -131,7 +133,7 @@ export class CustomUI {
             const mine = m.slot === me;
             const canTeam = host || mine;
             const chips = st.teams ? Object.keys(TEAMS).map(t => `<button class="lm-chip${m.team === t ? ' on' : ''}" style="--c:${TEAMS[t]}" title="${t}" ${(host || mine) ? `data-a="team" data-slot="${m.slot}" data-team="${t}"` : 'disabled'}></button>`).join('') : '';
-            return `<div class="lm-prow"><span class="lm-dot" style="background:${st.teams ? TEAMS[m.team] : '#64748b'}"></span><b>${esc(m.name)}</b>${m.slot === 0 ? '<i>host</i>' : ''}${m.bot ? '<i>cpu</i>' : ''}${mine ? '<i>you</i>' : ''}<span class="lm-sp"></span>${chips}${host && m.slot !== 0 ? `<button class="lm-btn lm-btn-ghost lm-mini" data-a="kick" data-slot="${m.slot}">${m.bot ? 'Remove' : 'Kick'}</button>` : ''}</div>`;
+            return `<div class="lm-prow"><span class="lm-dot" style="background:${st.teams ? TEAMS[m.team] : '#64748b'}"></span><b>${esc(m.name)}</b>${m.slot === 0 ? '<i>host</i>' : ''}${m.bot ? '<i>cpu</i>' : ''}${mine ? '<i>you</i>' : ''}${host && m.bot ? `<select class="lm-charsel" data-charsel data-slot="${m.slot}" aria-label="Character">${CHAR_IDS.map(c => `<option value="${c}"${c === (m.char || 'luminent') ? ' selected' : ''}>${CHARS[c].name}</option>`).join('')}</select>` : `<i>${esc(charOf(m.char).name)}</i>`}<span class="lm-sp"></span>${chips}${host && m.slot !== 0 ? `<button class="lm-btn lm-btn-ghost lm-mini" data-a="kick" data-slot="${m.slot}">${m.bot ? 'Remove' : 'Kick'}</button>` : ''}</div>`;
         }).join('');
         const it = this.items(), timer = st.mode === 'timer';
         const itemRows = ITEM_TYPES.map(t => { const on = it.types.includes(t), inf = ITEM_INFO[t];

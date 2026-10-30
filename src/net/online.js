@@ -6,6 +6,7 @@ import { S, p1, p2, startMatchSequence, applyRemote, applySnapshot, NETHOOK, res
 import { openTransport, hasRealtime } from './transport.js';
 import { isDown } from '../controls.js';
 import { displayName } from '../account.js';
+import { getMyChar, charOf } from '../characters.js';
 import { ITEM_TYPES, ITEM_DEFAULT, ITEM_INTERVAL_MIN, ITEM_INTERVAL_MAX } from '../items.js';
 import { bindChat, onRemoteChat, clearChat } from './chat.js';
 
@@ -83,8 +84,8 @@ export async function hostRoom(code, mode = 'pvp') {
             case 'hello':
                 if (Online.mode === 'lobby') { lobbyHello(m); break; }
                 if (Online.status === 'connected') { t.send({ t: 'full', to: m.id }); break; }
-                Online.peerName = (m.name || 'Guest').slice(0, 20);
-                t.send({ t: 'welcome', name: Online.name, mode: 'pvp', to: m.id, slot: 1 });
+                Online.peerName = (m.name || 'Guest').slice(0, 20); S.peerChar = charOf(m.char).id;
+                t.send({ t: 'welcome', name: Online.name, mode: 'pvp', to: m.id, slot: 1, char: getMyChar() });
                 set('connected', Online.peerName + ' joined');
                 beginMatch();
                 break;
@@ -102,7 +103,7 @@ export async function hostRoom(code, mode = 'pvp') {
     bindChat((msg) => t.send(msg)); clearChat();
     watch();
     if (mode === 'lobby') {
-        Online.lobby = { members: [{ id: 'host', slot: 0, name: Online.name, team: 'red', seen: Infinity }], settings: defaultSettings(), started: false };
+        Online.lobby = { members: [{ id: 'host', slot: 0, name: Online.name, team: 'red', char: getMyChar(), seen: Infinity }], settings: defaultSettings(), started: false };
         Online.slot = 0;
         lobbyTimer = setInterval(lobbyTick, 1500);
         set('connected', 'Lobby open. Share the code ' + Online.code);
@@ -112,7 +113,7 @@ export async function hostRoom(code, mode = 'pvp') {
 
 // ---------------------------------------------------------------- custom-match lobby (host side)
 const memberOf = (m) => Online.lobby.members.find(x => x.id === m.id && x.id !== 'host');
-const publicLobby = () => ({ t: 'lobby', settings: Online.lobby.settings, started: Online.lobby.started, members: Online.lobby.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null })) });
+const publicLobby = () => ({ t: 'lobby', settings: Online.lobby.settings, started: Online.lobby.started, members: Online.lobby.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null, char: x.char || 'luminent' })) });
 export function lobbyPush() { if (Online.role === 'host' && Online.mode === 'lobby') { Online.t.send(publicLobby()); Online.onChange(); } }
 function lobbyHello(m) {
     const L = Online.lobby;
@@ -122,7 +123,7 @@ function lobbyHello(m) {
         if (L.members.length >= MAX_PLAYERS) { Online.t.send({ t: 'full', to: m.id, why: 'That lobby is full (8 players)' }); return; }
         let slot = 1; while (L.members.some(x => x.slot === slot)) slot++;
         const counts = TEAMS.map(tm => L.members.filter(x => x.team === tm).length);
-        mem = { id: m.id, slot, name: String(m.name || 'Guest').slice(0, 20), team: TEAMS[counts.indexOf(Math.min(...counts))], seen: performance.now() };
+        mem = { id: m.id, slot, char: charOf(m.char).id, name: String(m.name || 'Guest').slice(0, 20), team: TEAMS[counts.indexOf(Math.min(...counts))], seen: performance.now() };
         L.members.push(mem);
     }
     Online.t.send({ t: 'welcome', name: Online.name, mode: 'lobby', to: m.id, slot: mem.slot });
@@ -148,6 +149,11 @@ export function setLobbySetting(k, v) {
     if (JSON.stringify(Online.lobby.settings[k]) === JSON.stringify(v)) return;       // no change: don't rebuild the panel under the user's mouse
     Online.lobby.settings[k] = v; lobbyPush();
 }
+export function setMemberChar(slot, char) {
+    if (Online.role !== 'host' || Online.lobby.started) return;
+    const mem = Online.lobby.members.find(x => x.slot === slot);
+    if (mem && mem.char !== charOf(char).id) { mem.char = charOf(char).id; lobbyPush(); }
+}
 export function setMemberTeam(slot, team) {
     if (Online.role === 'host') { const mem = Online.lobby.members.find(x => x.slot === slot); if (mem && TEAMS.includes(team)) { mem.team = team; lobbyPush(); } }
     else if (Online.role === 'guest' && slot === Online.slot && Online.t) Online.t.send({ t: 'team', id: Online.myId, team });
@@ -159,7 +165,7 @@ export function addBot(level) {
     let slot = 1; while (L.members.some(x => x.slot === slot)) slot++;
     const counts = TEAMS.map(tm => L.members.filter(x => x.team === tm).length);
     const n = L.members.filter(x => x.bot).length + 1;
-    L.members.push({ id: 'bot' + slot + '_' + Math.random().toString(36).slice(2, 5), slot, name: `CPU ${n} (${level})`, team: TEAMS[counts.indexOf(Math.min(...counts))], bot: level, seen: Infinity });
+    L.members.push({ id: 'bot' + slot + '_' + Math.random().toString(36).slice(2, 5), slot, char: getMyChar(), name: `CPU ${n} (${level})`, team: TEAMS[counts.indexOf(Math.min(...counts))], bot: level, seen: Infinity });
     lobbyPush();
     return true;
 }
@@ -174,7 +180,7 @@ export function beginLobbyMatch() {
     const L = Online.lobby;
     if (L.members.length < 2) { Online.note = 'You need at least 2 players'; Online.onChange(); return false; }
     L.started = true;
-    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null })), teams: L.settings.teams, startDamage: Math.min(249, +L.settings.startDamage || 0), stocks: +L.settings.stocks || 3, mode: L.settings.mode === 'timer' ? 'timer' : 'stock', timeLimit: +L.settings.timeLimit || 5, items: cleanItems(L.settings.items) };
+    const cfg = { players: L.members.map(x => ({ slot: x.slot, name: x.name, team: x.team, bot: x.bot || null, char: x.char || 'luminent' })), teams: L.settings.teams, startDamage: Math.min(249, +L.settings.startDamage || 0), stocks: +L.settings.stocks || 3, mode: L.settings.mode === 'timer' ? 'timer' : 'stock', timeLimit: +L.settings.timeLimit || 5, items: cleanItems(L.settings.items) };
     S.online = 'host'; S.opponentName = null;
     NETHOOK.send = (snap) => Online.t && Online.t.send({ t: 'snap', s: snap });
     Online.t.send({ t: 'start', cfg });
@@ -219,7 +225,7 @@ export async function joinRoom(code) {
     };
     bindChat((msg) => t.send(msg)); clearChat();
     watch();
-    const hello = () => t.send({ t: 'hello', id: myId, name: Online.name });
+    const hello = () => t.send({ t: 'hello', id: myId, name: Online.name, char: getMyChar() });
     hello();
     const retry = setInterval(() => { if (welcomed || Online.role !== 'guest') clearInterval(retry); else hello(); }, 500);
     setTimeout(() => { if (!welcomed && Online.role === 'guest') { clearInterval(retry); leaveRoom(false); set('closed', 'No room with that code'); } }, 8000);

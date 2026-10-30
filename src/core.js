@@ -1,9 +1,10 @@
 // ============================================================================
-//  THE LUMINARY - game core
+//  COOL BATTLE GAME - game core
 //  All gameplay runs in the original 2D world space: x -> right, y -> down,
 //  3800 x 2100. The 3D renderer only *reads* this state; the `fx(...)` hooks and
 //  presentation fields (attackKind, specialKind, ...) never feed back in.
 // ============================================================================
+import { charOf, getMyChar, DEFAULT_CHAR } from './characters.js';
 import { SoundEngine } from './audio.js';
 import { isDown } from './controls.js';
 import { ITEM_TYPES } from './items.js';
@@ -22,7 +23,7 @@ for (const name of Object.getOwnPropertyNames(Object.getPrototypeOf(audio))) {
 export const koBeams = [];
 export const shockwaves = [];
 export const fxEvents = [];
-export const orbs = [];                    // Luminary Core projectiles
+export const orbs = [];                    // CBG Core projectiles
 let orbSerial = 0;
 function fx(type, x, y, a = 0, b = 0) { fxEvents.push({ type, x, y, a, b }); if (S.online === 'host') outbox.push({ k: 'f', e: [type, x, y, a, b] }); }
 
@@ -109,7 +110,7 @@ export const AIR_F_MAX = 2;   // F moves usable in the air before you must touch
 const CD = { CORE: 90, BLINK: 60, SPIRAL: 120, SUPLEX: 0, HEADBUTT: 90 };   // no aftermath cooldown on the suplex
 const F_MOVES = new Set(['BLINK', 'SPIRAL', 'HEADBUTT']);   // (the ground-down Suplex is a grab, so it counts as GRAB)
 const SPIRAL_JUMP_COST = 0;   // Rising Spiral takes no jumps at all
-const HOLD_TO_CORE = 30;      // F held < 0.5 s -> directional variant, >= 0.5 s -> Luminary Core charge
+const HOLD_TO_CORE = 30;      // F held < 0.5 s -> directional variant, >= 0.5 s -> CBG Core charge
 const CHARGE_MAX = 63;        // full charge after 63 frames (0.7x the old 1.5 s)
 
 let dramaticZoom = {
@@ -199,7 +200,7 @@ function updateAimMatrix() {
             break;
         default:
             arrowElem.textContent = '⏺';
-            labelElem.textContent = (forcedNeutral ? 'NEUTRAL (held)' : 'NEUTRAL') + '  •  J: Jab  •  hold F: Luminary Core';
+            labelElem.textContent = (forcedNeutral ? 'NEUTRAL (held)' : 'NEUTRAL') + '  •  J: Jab  •  hold F: CBG Core';
             break;
     }
 }
@@ -254,6 +255,7 @@ function interaction(atkType, defender) {
 
 class Fighter {
     constructor(x, y, color, name, isAI = false) {
+        this.char = DEFAULT_CHAR;                // which character this fighter is (model, walk speed, special tunings)
         this.startX = x;
         this.startY = y;
         this.home = { x, y, color, name };       // restored when leaving a custom match
@@ -287,6 +289,8 @@ class Fighter {
         this.heldItem = null;                // item in hand (host only; guests read `heldId`)
         this.heldId = 0;
         this.balloon = false;                // balloon item: 7 jumps until knocked out
+        this.gravT = 0;                      // frames of reduced gravity (0.65x) after being hit by someone holding a balloon
+        this.stuckTo = 0;                    // id of a thrown firestick (spear) this fighter is pinned to
         this.kills = 0;                      // timer matches: score
         this.deaths = 0;
         this.lastHitBy = null;               // for kill credit
@@ -375,7 +379,7 @@ class Fighter {
         this.vy = 0;
         this.damage = S.match ? S.match.startDamage : 0;    // custom match: you start AND respawn with the chosen starting damage
         this.dropHeld();
-        this.balloon = false; this.maxJumps = 4;
+        this.balloon = false; this.maxJumps = 4; this.gravT = 0; this.stuckTo = 0;
         this.jumpsLeft = this.maxJumps;
         this.isHanging = false;
         this.canGrab = true;
@@ -432,6 +436,7 @@ class Fighter {
     }
 
     update() {
+        if (this.gravT > 0) this.gravT--;
         if (this.dropT > 0) this.dropT--;
         if (this.damage >= 250) {
             this.takeKO();
@@ -452,7 +457,7 @@ class Fighter {
         if (this.clashStunTimer > 0) {
             this.clashStunTimer--;
             this.vx = 0;
-            this.vy = Math.min(this.vy + WORLD.gravity, WORLD.terminalVelocity);
+            this.vy = Math.min(this.vy + WORLD.gravity * (this.gravT > 0 ? 0.65 : 1), WORLD.terminalVelocity);
             this.x += this.vx;
             this.y += this.vy;
             this.checkStageCollision();
@@ -462,7 +467,7 @@ class Fighter {
         if (this.dizzyTimer > 0) {
             this.dizzyTimer--;
             this.vx *= 0.8;
-            this.vy = Math.min(this.vy + WORLD.gravity, WORLD.terminalVelocity);
+            this.vy = Math.min(this.vy + WORLD.gravity * (this.gravT > 0 ? 0.65 : 1), WORLD.terminalVelocity);
             this.x += this.vx;
             this.y += this.vy;
             this.checkStageCollision();
@@ -472,7 +477,7 @@ class Fighter {
         if (this.freezeTimer > 0) {          // getting up after a headbutt (not a stun: no grey, no damage)
             this.freezeTimer--;
             this.vx = 0;
-            this.vy = Math.min(this.vy + WORLD.gravity, WORLD.terminalVelocity);
+            this.vy = Math.min(this.vy + WORLD.gravity * (this.gravT > 0 ? 0.65 : 1), WORLD.terminalVelocity);
             this.y += this.vy;
             this.checkStageCollision();
             return;
@@ -619,7 +624,7 @@ class Fighter {
         if (this.diving || this.spiralT > 0) {
             this.vx *= 0.92;
         } else if (!this.grounded) {
-            this.vy = Math.min(this.vy + WORLD.gravity, WORLD.terminalVelocity);
+            this.vy = Math.min(this.vy + WORLD.gravity * (this.gravT > 0 ? 0.65 : 1), WORLD.terminalVelocity);
             this.vx *= WORLD.airFriction;
         } else {
             this.vx *= WORLD.friction;
@@ -757,7 +762,7 @@ class Fighter {
         return true;
     }
     cancelF() { this.fActive = false; this.chargeFrames = 0; this.aiChargeGoal = 0; }
-    /** F released: held >= 0.5 s (or neutral aim) -> Luminary Core, otherwise the directional variant */
+    /** F released: held >= 0.5 s (or neutral aim) -> CBG Core, otherwise the directional variant */
     fRelease(dir, tx, ty) {
         if (!this.fActive) return false;
         const held = this.chargeFrames, neutral = this.fNeutral, dp = this.fDirPress;
@@ -802,7 +807,7 @@ class Fighter {
         if (len < 1) { dx = this.facing; dy = 0; len = 1; }
         dx /= len; dy /= len;
         if (Math.abs(dx) > 0.2) this.facing = dx > 0 ? 1 : -1;
-        const speed = (22.5 + (16.25 * 1.3 - 22.5) * charge) * 0.7;   // 0.7x of the previous speed (15.75 uncharged -> 14.8 full)
+        const speed = (22.5 + (16.25 * 1.3 - 22.5) * charge) * 0.7 * charOf(this.char).orb;   // 0.7x of the previous speed (15.75 uncharged -> 14.8 full)
         const r = 12 + (62 * 0.8 * 0.8 - 12) * charge;        // min 12 (2x smaller), max 39.7 (0.8x the previous max)
         const full = charge >= 1;
         const color = full ? (this.superColor || (this === p1 ? '#a855f7' : '#fb923c')) : this.color;   // full charge: blue -> purple, red -> orange
@@ -819,7 +824,7 @@ class Fighter {
     startBlink(d) {
         this.facing = d;
         const fromX = this.x, fromY = this.y;
-        this.x = Math.min(WORLD.width - 20, Math.max(20, this.x + d * 220));
+        this.x = Math.min(WORLD.width - 20, Math.max(20, this.x + d * 220 * charOf(this.char).blink));
         this.vy = Math.min(this.vy, 1.5);
         this.vx = d * 2;
         this.invincibleTimer = Math.max(this.invincibleTimer, 8);
@@ -1386,7 +1391,7 @@ class AIBot extends Fighter {
         const distToTargetY = target.y - this.y;
         const dist = Math.sqrt(distToTargetX * distToTargetX + distToTargetY * distToTargetY);
 
-        // charging a Luminary Core: stand still, then fire it straight at where the target is heading
+        // charging a CBG Core: stand still, then fire it straight at where the target is heading
         if (this.fActive) {
             this.vx *= 0.8;
             this.facing = distToTargetX > 0 ? 1 : -1;
@@ -1457,7 +1462,7 @@ class AIBot extends Fighter {
         const targetIsOffStage = target.x < STAGE.x - 20 || target.x > STAGE.x + STAGE.width + 20 || target.y > STAGE.y + 10 || target.isHanging;
         const targetOnEdge = target.isHanging || target.x < STAGE.x + 140 || target.x > STAGE.x + STAGE.width - 140;
 
-        // the player is on / over the edge: shoot a Luminary Core at them from range
+        // the player is on / over the edge: shoot a CBG Core at them from range
         if ((targetIsOffStage || targetOnEdge) && this.grounded && dist > 280 && this.cd.CORE <= 0 &&
             this.actionTimer % 10 === 0 && Math.random() < (med ? 0.25 : 0.55)) {
             if (this.beginCore(target, 35 + Math.random() * 28)) return;
@@ -1609,8 +1614,12 @@ const STICK_MAX_LEN = 5;
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 
 function spawnItem(type) {
-    const x = STAGE.x + 140 + Math.random() * (STAGE.width - 280);
-    const y = STAGE.y - (S.arena === 'lobby' ? 1000 : 650);
+    // only ever above a surface: the main stage or one of the soft platforms
+    const surfaces = [{ x: STAGE.x, w: STAGE.width, y: STAGE.y }, ...STAGE.platforms];
+    const sf = surfaces[Math.random() * surfaces.length | 0];
+    const pad = Math.min(60, sf.w * 0.15);
+    const x = sf.x + pad + Math.random() * Math.max(10, sf.w - pad * 2);
+    const y = sf.y - 300;
     items.push({ id: ++itemSerial, type, x, y, py: y, vx: 0, vy: 0, r: ITEM_R[type], st: 'idle', age: 0, rest: 0, owner: null, grace: 0,
         rot: 0, spin: 0, hold: -1, hitCool: 0, throws: 0, len: STICK_MAX_LEN, reductions: 0, act: false, armed: false, tT: 0, holder: null });
     fx('pickup', x, y);
@@ -1663,6 +1672,14 @@ function throwHeldItem(f, tx, ty) {
     return true;
 }
 
+function releasePins(it, recharge) {
+    it.hitCool = 40;
+    for (const f of fighters) if (f.stuckTo === it.id) {
+        f.stuckTo = 0; f.vy = Math.min(f.vy, -2);
+        if (recharge) { f.jumpsLeft = f.maxJumps; f.airSpecials = 0; f.canGrab = true; }
+    }
+}
+
 function landOn(it) {
     const bottom = it.y + it.r, prevBottom = it.py + it.r;
     if (it.x > STAGE.x - 6 && it.x < STAGE.x + STAGE.width + 6 && prevBottom <= STAGE.y + 4 && bottom >= STAGE.y) { it.y = STAGE.y - it.r; return true; }
@@ -1682,7 +1699,7 @@ function updateItems() {
     }
     for (let n = items.length - 1; n >= 0; n--) {
         const it = items[n];
-        if (it.st === 'dead') { if (it.holder) { it.holder.heldItem = null; it.holder.heldId = 0; } items.splice(n, 1); continue; }
+        if (it.st === 'dead') { if (it.holder) { it.holder.heldItem = null; it.holder.heldId = 0; } if (it.type === 'FIRESTICK') releasePins(it, false); items.splice(n, 1); continue; }
         it.age++;
         if (it.st === 'held') {
             const h = it.holder;
@@ -1708,6 +1725,14 @@ function updateItems() {
             it.x = it.x < STAGE.x + STAGE.width / 2 ? STAGE.x - it.r : STAGE.x + STAGE.width + it.r; it.vx *= -0.5;
         }
         const landed = landOn(it);
+        if (it.type === 'FIRESTICK') {
+            for (const f of fighters) if (f.stuckTo === it.id) {                 // pinned fighters ride the spear
+                if (!isAlive(f)) { f.stuckTo = 0; continue; }
+                f.x = it.x; f.y = it.y; f.px = f.x; f.py = f.y; f.vx = f.vy = 0; f.hitstun = Math.max(f.hitstun, 2); f.grounded = false;
+            }
+            if (landed) releasePins(it, false);                                   // hits the ground: they come off
+            else if (it.y > STAGE.y + 24 && (it.x < STAGE.x || it.x > STAGE.x + STAGE.width)) releasePins(it, true);   // fell below the stage tip: free, with the ground's recharge
+        }
         if (landed) {
             if (it.type === 'BALL' && thrown) {
                 it.vy = Math.abs(it.vy) > 2.5 ? -it.vy * 0.5 : 0;
@@ -1734,7 +1759,7 @@ function itemInteractions() {
     for (const f of fighters) {
         if (!isAlive(f) || !f.isGrabDashing || f.suplexPending) continue;
         for (const it of items) {
-            if ((it.st !== 'idle' && it.st !== 'thrown') || (it.st === 'thrown' && (it.type !== 'BALL' || it.owner === f))) continue;
+            if ((it.st !== 'idle' && it.st !== 'thrown') || (it.st === 'thrown' && (it.type !== 'BALL' || (it.owner === f && it.grace > 0)))) continue;
             if (Math.hypot(it.x - f.x, it.y - f.y) < 72 + it.r) { if (pickUp(f, it)) break; }
         }
     }
@@ -1765,9 +1790,15 @@ function itemInteractions() {
             const dirx = it.vx >= 0 ? 1 : -1;
             if (f.isShielding) {
                 audio.playShield(); f.shieldHealth = Math.max(0, f.shieldHealth - 10); fx('block', it.x, it.y);
+            } else if (it.type === 'FIRESTICK') {                                      // thrown like a spear: pins whoever it hits and carries them
+                if (f.stuckTo === it.id) continue;
+                f.interrupt(); f.damage += 15; f.lastHitBy = it.owner || f; f.lastHitT = 0;
+                f.stuckTo = it.id; f.vx = f.vy = 0; f.hitstun = Math.max(f.hitstun, 3);
+                S.screenShake = Math.max(S.screenShake, 12); audio.playHit(true); fx('hit', f.x, f.y, 15, dirx > 0 ? -0.2 : Math.PI + 0.2);
+                burnItem(it);
+                continue;                                                              // keeps flying (no bounce back), may pin others too
             } else {
-                launch(it.owner || f, f, { damage: it.type === 'BALL' ? 10 : 8, bkb: it.type === 'BALL' ? 8 : 10, kbg: it.type === 'BALL' ? 0.9 : 1.0, angle: dirx > 0 ? -0.5 : Math.PI + 0.5 });
-                if (it.type === 'FIRESTICK') burnItem(it);
+                launch(it.owner || f, f, { damage: 10, bkb: 8, kbg: 0.9, angle: dirx > 0 ? -0.5 : Math.PI + 0.5 });
             }
             it.vx = -dirx * Math.max(4, Math.abs(it.vx) * 0.6); it.vy = -6; it.hitCool = 14; it.grace = 0;      // bounces back
             break;
@@ -1848,6 +1879,14 @@ function grabThrowSpeed(victim) {
 }
 
 /** apply damage + knockback / stun for a landed hit */
+/** hitting someone with a melee while holding a balloon pops it: they get a floaty 2 s (0.65x gravity) */
+function balloonPop(attacker, defender, hb) {
+    if (!attacker.balloon || (hb.type && hb.type !== 'J')) return;
+    attacker.balloon = false; attacker.maxJumps = 4; attacker.jumpsLeft = Math.min(attacker.jumpsLeft, 4);
+    defender.gravT = 120;
+    fx('burn', attacker.x, attacker.y - 40); audio.playHit(false);
+}
+
 function launch(attacker, defender, hb) {
     defender.interrupt();
     defender.damage += hb.damage;
@@ -2097,6 +2136,7 @@ function checkCombatCollisions(attacker, defender) {
             set.add(defender);
             if (res !== 'hit') { handleBlocked(res, attacker, defender); return; }
             launch(attacker, defender, hb);
+            balloonPop(attacker, defender, hb);
             if (hb.fire) burnStick(attacker);
             return;
         }
@@ -2107,6 +2147,7 @@ function checkCombatCollisions(attacker, defender) {
             return;
         }
         launch(attacker, defender, hb);
+        balloonPop(attacker, defender, hb);
         if (hb.fire) burnStick(attacker);
     }
 }
@@ -2241,7 +2282,7 @@ function startMatchSequence(mode, cfg) {
         cfg.players.forEach((pl, i) => {
             // the local player is always drawn as p1 (slot 0 locally): swap slot 0 and my slot
             const f = fighters[pl.slot];
-            f.active = true; f.name = pl.name; f.team = S.match.teams ? pl.team : null; f.isAI = !!pl.bot; f.diff = pl.bot || null; f.shieldHold = 0;
+            f.char = charOf(pl.char).id; f.active = true; f.name = pl.name; f.team = S.match.teams ? pl.team : null; f.isAI = !!pl.bot; f.diff = pl.bot || null; f.shieldHold = 0;
             f.color = S.match.teams && pl.team ? TEAM_COLORS[pl.team] : FFA_COLORS[pl.slot % 8];
             f.superColor = null;
             f.startX = STAGE.x + STAGE.width * 0.15 + (n > 1 ? span * i / (n - 1) : span / 2);
@@ -2249,6 +2290,8 @@ function startMatchSequence(mode, cfg) {
             f.reset(true); f.shieldHold = 0; f.remoteAim = null;
         });
     } else {
+    p1.char = getMyChar();
+    p2.char = S.online === 'host' ? (S.peerChar || DEFAULT_CHAR) : S.online === 'guest' ? DEFAULT_CHAR : getMyChar();   // bots wear the character you have equipped
     p1.reset(true);
     p2.reset(true);
     p2.shieldHold = 0;
@@ -2358,6 +2401,12 @@ function checkMatchEnd() {
     endGame(S.iWon ? 'YOU WIN!' : `${S.winnerLabel} WINS!`, 'lobby');
 }
 
+/** bots accelerate by themselves; give them their character's walk speed too */
+function aiWalk(f) {
+    const w = charOf(f.char).walk;
+    if (w !== 1 && f.hitstun === 0 && f.grounded && !f.isShielding) f.vx *= 1 + (w - 1) * 0.12;
+}
+
 /** walking / shielding for one fighter from a held-input state ({left,right,shield,drop}) */
 function drive(f, h) {
     const free = f.hitstun === 0 && f.dizzyTimer === 0 && f.clashStunTimer === 0 && !f.grabHolding &&
@@ -2365,7 +2414,7 @@ function drive(f, h) {
     if (free) {
         // you can always walk (even during the 0.7 s move lock) - except while diving
         if (!f.diving) {
-            const spd = f.fActive ? 6.75 : (f.spiralT > 0 ? 4.5 : 8.5);   // charging a core: 1.5x the old 4.5
+            const spd = (f.fActive ? 6.75 : (f.spiralT > 0 ? 4.5 : 8.5)) * charOf(f.char).walk;   // charging a core: 1.5x the old 4.5
             if (h.left) { if (f.isHanging) f.isHanging = false; f.vx = -spd; f.facing = -1; }
             if (h.right) { if (f.isHanging) f.isHanging = false; f.vx = spd; f.facing = 1; }
         }
@@ -2438,9 +2487,10 @@ function packFighter(f) {
 
 /** a compact (delta-coded) description of the whole match for the guest */
 export function snapshot() {
-    const full = (fullEvery++ % 60) === 0;
+    const tick = fullEvery++;
     const fs = (S.match ? fighters : [p1, p2]).map((f, i) => {
         if (!f.active && S.match) return null;
+        const full = (tick % 8) === (i % 8);                      // refresh one fighter per snapshot, so no single message is huge
         const cur = packFighter(f), out = {};
         for (const k in cur) {
             const v = cur[k], j = (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
@@ -2463,14 +2513,28 @@ export function resetSnapshotState() { lastSent = Array.from({ length: 8 }, () =
 const guestOrbs = new Map();
 const guestItems = new Map();
 const guestFlip = (i) => i < 0 ? -1 : (S.match ? i : 1 - i);   // 1v1: host's p1 is the guest's p2 and vice versa; custom matches use absolute slots
+const INTERP_MS = 85;                                 // the guest shows the world this far in the past: smooth even when packets arrive in bursts
 function guestSmooth() {
+    const rt = performance.now() - INTERP_MS;
     for (const f of (S.match ? fighters : [p1, p2])) {
         if (!f.active) continue;
         f.px = f.x; f.py = f.y;
-        if (f._tx === undefined) continue;
-        const d = Math.hypot(f._tx - f.x, f._ty - f.y);
-        if (d > 260 || f._snap) { f.x = f._tx; f.y = f._ty; f._snap = false; f._teleported = true; }
-        else { f.x += (f._tx - f.x) * 0.45; f.y += (f._ty - f.y) * 0.45; }
+        f._since2 = (f._since2 || 0) + 1;
+        if (f._since2 === 1 && f._atChg && f.attackTimer > 0) f.attackTimer--;      // animation timer: tick it on the frame between two snapshots so attacks play smoothly
+        const buf = f._buf;
+        if (!buf || !buf.length) continue;
+        while (buf.length > 2 && buf[1].t <= rt) buf.shift();   // drop samples we have passed
+        const a = buf[0], b = buf[1];
+        let x, y;
+        if (!b) {                                         // starved: carry on with the last known velocity for a moment
+            const fr = Math.min(8, Math.max(0, (rt - a.t) / 16.7));
+            x = a.x + (f.vx || 0) * fr; y = a.y + (f.vy || 0) * fr;
+        } else if (rt >= b.t) { x = b.x; y = b.y; }
+        else if (rt <= a.t) { x = a.x; y = a.y; }
+        else if (b.tp) { x = a.x; y = a.y; }               // a teleport (blink, respawn): hold, then jump
+        else { const u = (rt - a.t) / (b.t - a.t); x = a.x + (b.x - a.x) * u; y = a.y + (b.y - a.y) * u; }
+        if (Math.hypot(x - f.x, y - f.y) > 260) { f._teleported = true; } else f._teleported = false;
+        f.x = x; f.y = y;
     }
     for (const o of orbs) { o.x += o.vx * 0.5; o.y += o.vy * 0.5; }
     for (const g of items) if (g.st !== 'held' && !g.act && g.st !== 'zone') { g.x += g.vx * 0.5; g.y += g.vy * 0.5; g.rot += (g.spin || 0) * 0.5; }
@@ -2480,6 +2544,7 @@ export function applySnapshot(s) {
     s.f.forEach((d, i) => {
         const f = mine[i];
         if (!d || !f) return;
+        f._since2 = 0; f._atChg = d.attackTimer !== undefined;
         for (const k in d) {
             const v = d[k];
             if (k === 'x') { if (f._tx === undefined) { f.x = v; } f._tx = v; }
@@ -2490,7 +2555,11 @@ export function applySnapshot(s) {
             else if (k === 'facing') f.facing = v;
             else f[k] = v;
         }
-        if (d._teleported) f._snap = true;
+        if (f._tx !== undefined) {
+            const buf = f._buf || (f._buf = []);
+            buf.push({ t: performance.now(), x: f._tx, y: f._ty, tp: !!d._teleported });
+            if (buf.length > 24) buf.shift();
+        }
     });
     // orbs, matched by id so the renderer keeps one object per projectile
     const seen = new Set();
@@ -2501,7 +2570,9 @@ export function applySnapshot(s) {
         const color = o.c >= 1 ? (S.match ? '#a855f7' : (own === p1 ? '#a855f7' : '#fb923c')) : own.color;
         let g = guestOrbs.get(o.id);
         if (!g) { g = { id: o.id }; guestOrbs.set(o.id, g); orbs.push(g); }
+        const had = g.x !== undefined, gx = g.x, gy = g.y;
         Object.assign(g, { x: o.x, y: o.y, vx: o.vx, vy: o.vy, r: o.r, charge: o.c, owner: own, color, life: 200 });
+        if (had && Math.hypot(gx - o.x, gy - o.y) < 90) { g.x = gx + (o.x - gx) * 0.5; g.y = gy + (o.y - gy) * 0.5; }
     }
     for (const [id, g] of guestOrbs) if (!seen.has(id)) { guestOrbs.delete(id); const i = orbs.indexOf(g); if (i >= 0) orbs.splice(i, 1); }
     // items, matched by id
@@ -2538,7 +2609,7 @@ export function applySnapshot(s) {
 }
 
 export function step() {
-    const bubble = items.length && S.online !== 'guest' && items.some(i => i.act);
+    const bubble = false;                               // the clock bubble slows projectiles and items only, never fighters
     for (const f of fighters) {
         if (!f.active) continue;
         if (bubble) {                                       // clock bubble: fighters inside only advance 3 of every 10 frames
@@ -2558,7 +2629,7 @@ export function step() {
         flushBuffered();
         for (const f of live) {
             if (!f._upd) continue;
-            if (f.isAI) { const foe = nearestOf(f, foesOf(f)); if (foe) f.updateAI(foe); f.update(); continue; }
+            if (f.isAI) { const foe = nearestOf(f, foesOf(f)); if (foe) f.updateAI(foe); aiWalk(f); f.update(); continue; }
             drive(f, f === p1 ? { left: isDown('left'), right: isDown('right'), shield: isDown('shield'), drop: isDown('drop') } : (remote.helds[f.slot] || NOHELD));
             f.update();
         }
@@ -2575,7 +2646,7 @@ export function step() {
         drive(p1, { left: isDown('left'), right: isDown('right'), shield: isDown('shield'), drop: isDown('drop') });
         p1.update();
         if (S.online === 'host') drive(p2, remote.helds[1] || NOHELD);   // the guest's fighter, steered by their inputs
-        else p2.updateAI(p1);
+        else { p2.updateAI(p1); aiWalk(p2); }
         p2.update();
 
         updateOrbs();

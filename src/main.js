@@ -11,6 +11,7 @@ import { UI } from './ui.js';
 import { View } from './render/view.js';
 import { Online, leaveRoom, sendAct, sendHeld, requestRematch, joinRoom } from './net/online.js';
 import { CustomUI } from './net/customUI.js';
+import { CharUI } from './charUI.js';
 import { PartyUI } from './net/partyUI.js';
 import { Party, joinParty } from './net/party.js';
 import { LobbyUI } from './net/lobbyUI.js';
@@ -33,6 +34,7 @@ ui.layoutEditor = new LayoutEditor({ root: document.body });
 const lobby = new LobbyUI({ root: $('luminary-root'), openBtn: $('onlineBtnStart') });
 const toasts = new Toasts($('luminary-root'));
 const borgsUI = new BorgsUI({ root: $('luminary-root'), toasts, onInviteSent: () => lobby.open('Invite sent. Waiting for your friend to join…') });
+const charUI = new CharUI({ root: $('luminary-root'), openBtn: $('charBtnStart') });
 const custom = new CustomUI({ root: $('luminary-root'), openBtn: $('customBtnStart'), openBorgs: () => borgsUI.open('borgs') });
 const partyUI = new PartyUI({ root: $('luminary-root'), openBtn: $('partyBtnStart'), toasts });
 Inbox.joinParty = (code) => { partyUI.open(); return joinParty(code); };
@@ -96,7 +98,7 @@ function doAction(action) {
         case 'attack': if (!p1.attack(mouse.direction, true)) bufferInput('attack', { dir: mouse.direction, hold: true }); break;
         case 'grab': if (!p1.executeGrabDash(mouse.worldX, mouse.worldY)) bufferInput('grab', { wx: mouse.worldX, wy: mouse.worldY }); break;
         case 'roll': p1.executeRoll(); break;                       // only works while shielding
-        case 'special': p1.fPress(mouse.direction); break;          // hold = Luminary Core, tap = variant for the aim
+        case 'special': p1.fPress(mouse.direction); break;          // hold = CBG Core, tap = variant for the aim
     }
 }
 function releaseAction(action) {
