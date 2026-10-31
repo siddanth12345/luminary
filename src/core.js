@@ -237,7 +237,7 @@ for (const id in SP) {
     if (!sp || (sp.kind !== 'tp' && sp.kind !== 'dash') || sp.swing === 'BLINK') continue;
     const ang = sp.ang !== undefined ? sp.ang : Math.PI / 5;
     SWING['SP_' + id + '_S'] = {
-        type: 'BLINK', a: 1, b: sp.kind === 'dash' ? sp.frames : 9, w: sp.w || 110, h: sp.h || 72, damage: sp.dmg, bkb: sp.bkb, kbg: sp.kbg, multi: !!sp.multi,
+        type: 'BLINK', a: 1, b: sp.kind === 'dash' ? sp.frames : 9, w: sp.w || 110, h: sp.h || 72, damage: sp.dmg, bkb: sp.bkb, kbg: sp.kbg, multi: !!sp.multi, stun: sp.stun || 0, flow: sp.flow ? sp.dist / sp.frames : 0,
         path: sp.kind === 'dash' ? (k, f) => ({ x: f * (sp.w * 0.3), y: 0 }) : (k, f) => ({ x: f * (30 + 70 * k), y: 0 }),
         angle: (f) => f === 1 ? -ang : Math.PI + ang,
     };
@@ -700,7 +700,8 @@ class Fighter {
         this.activeHitbox = {
             x: this.x + p.x * reach, y: this.y + p.y * reach, w: sw.w * fl, h: sw.h * (1 + (fl - 1) * 0.35),
             damage: sw.damage * cm, bkb: sw.bkb * cm, kbg: sw.kbg * cm, angle: sw.angle(this.facing, this.grounded), type: sw.type,
-            multi: !!sw.multi, fire: fl > 1,
+            multi: !!sw.multi, fire: fl > 1, stun: sw.stun || 0,
+            fixed: sw.flow ? { vx: this.facing * sw.flow, vy: -1, hitstun: 8 } : null,
         };
         if (sw.type === 'J') this.setMove('J', 2);            // J only counters while its swing is live
     }
@@ -807,28 +808,44 @@ class Fighter {
             x.ang += Math.max(-sp.turn, Math.min(sp.turn, da));
             this.x += Math.cos(x.ang) * sp.speed; this.y += Math.sin(x.ang) * sp.speed;
             this.vx = this.vy = 0; this.grounded = false; this.facing = Math.cos(x.ang) >= 0 ? 1 : -1;
-            if (x.t % 3 === 1) {
+            if (sp.drill) {                                                // Phoenix Dash: a drill of quick hits that carry foes along with the flame; only the final blast knocks
+                if (x.t % 4 === 1 && (x.hits || 0) < sp.maxHits) {
+                    const hx = this.x + Math.cos(x.ang) * 40, hy = this.y + Math.sin(x.ang) * 40;
+                    if (foesOf(this).some(t => isAlive(t) && Math.abs(t.x - hx) < sp.w / 2 + t.width / 2 && Math.abs(t.y - hy) < sp.h / 2 + t.height / 2)) x.hits = (x.hits || 0) + 1;
+                    this.swingHitSet = new Set();
+                    this.activeHitbox = { x: hx, y: hy, w: sp.w, h: sp.h, type: 'SPIRAL', ttl: 3, multi: true, damage: sp.dmg, bkb: 0, kbg: 0, angle: x.ang,
+                        fixed: { vx: Math.cos(x.ang) * sp.speed * 0.95, vy: Math.sin(x.ang) * sp.speed * 0.95, hitstun: 7 } };
+                }
+            } else if (x.t % 3 === 1) {
                 if (!this.swingHitSet) this.swingHitSet = new Set();
                 this.activeHitbox = { x: this.x + Math.cos(x.ang) * 34, y: this.y + Math.sin(x.ang) * 34, w: sp.w, h: sp.h, type: 'SPIRAL', ttl: 3, multi: true,
                     damage: sp.dmg, bkb: sp.bkb, kbg: sp.kbg, angle: x.ang - 0.15 * Math.sign(Math.cos(x.ang) || 1), fixed: null };
             }
             fx('trail', this.x, this.y, Math.round(x.ang * 100) / 100, 0, STYLE_OF[this.char]);
             if (x.t >= sp.frames) {
+                if (sp.boom) {                                              // the rocket runs out: it explodes and this blast knocks everyone back
+                    this.swingHitSet = new Set();
+                    this.activeHitbox = { x: this.x, y: this.y, w: sp.boom.R * 2, h: sp.boom.R * 2, type: 'SPIRAL', ttl: 6, multi: true, radial: true,
+                        damage: sp.boom.dmg, bkb: sp.boom.bkb, kbg: sp.boom.kbg, angle: -0.8 };
+                    fx('explosion', this.x, this.y, sp.boom.R, 1, STYLE_OF[this.char]); fx('gust', this.x, this.y, sp.boom.R, 1, STYLE_OF[this.char]);
+                    S.screenShake = Math.max(S.screenShake, 16); audio.playHit(true);
+                    createParticles(this.x, this.y, '#fb923c', 30);
+                }
                 this.sx = null; this.activeMove = null; this.armorT = Math.min(this.armorT, 3);
                 this.vx = Math.cos(x.ang) * sp.speed * 0.45; this.vy = Math.sin(x.ang) * sp.speed * 0.45;
                 const over = this.x > STAGE.x - 40 && this.x < STAGE.x + STAGE.width + 40 && this.y < STAGE.y;
-                this.actionLock = Math.max(this.actionLock, over ? 20 : 70);
+                this.actionLock = Math.max(this.actionLock, sp.boom ? 16 : over ? 20 : 70);
             }
         } else if (x.k === 'erupt') {
             const sp = spec(this.char, 'U');
             this.activeMove = { type: 'SPIRAL', t: 3 };
-            if (x.t === 1) { this.vy = Math.min(this.vy, sp.hop || -6); this.grounded = false; }
             if (x.t === sp.windup) {
-                const w = STAGE.width * sp.w, feet = this.y + this.height / 2;
+                const w = STAGE.width * sp.w, px = x.tx, feet = x.ty;
                 this.swingHitSet = new Set();
-                this.activeHitbox = { x: this.x, y: feet - sp.h / 2 + 30, w, h: sp.h, type: 'SPIRAL', ttl: 6, multi: true, mirror: true,
-                    damage: sp.dmg, bkb: sp.bkb, kbg: sp.kbg, angle: -1.45 };
-                fx('pillar', this.x, feet, w, sp.h, STYLE_OF[this.char] + '!'); S.screenShake = Math.max(S.screenShake, 10); audio.playHit(true);
+                this.activeHitbox = { x: px, y: feet - sp.h / 2 + 30, w, h: sp.h, type: 'SPIRAL', ttl: 6, multi: true, mirror: true,
+                    damage: sp.dmg, bkb: 0, kbg: 0, angle: -1.45, stun: sp.stun || 0, lift: sp.lift || 0 };      // foes are lifted and stunned (grey), no knockback
+                fx('pillar', px, feet, w, sp.h, STYLE_OF[this.char] + '!'); S.screenShake = Math.max(S.screenShake, 10); audio.playHit(true);
+                this.vy = -(sp.ride || 12); this.grounded = false;     // the geyser throws the caster up too
             }
             if (x.t >= sp.windup + 14) { this.sx = null; this.activeMove = null; }
         } else if (x.k === 'dash') {
@@ -836,9 +853,23 @@ class Fighter {
             if (x.t <= sp.frames) {
                 this.x = Math.min(WORLD.width - 20, Math.max(20, this.x + x.d * sp.dist / sp.frames));
                 this.vx = 0; this.vy = Math.min(this.vy, 0.5);
-                this.ghosts.push({ x: this.x, y: this.y, alpha: 0.6, color: '#fde68a' });
+                this.ghosts.push({ x: this.x, y: this.y, alpha: 0.6, color: sp.ghost || '#fde68a' });
                 if (x.t % 2 === 0) fx('trail', this.x, this.y, x.d > 0 ? 0 : Math.PI, 1, STYLE_OF[this.char]);
+            } else if (sp.end && x.t <= sp.frames + 5) {
+                this.vx = 0; this.vy = Math.min(this.vy, 0.5);
+                if (!x.ended) {                                 // the dash finishes with a blast: this is the hit that knocks
+                    x.ended = true; const e = sp.end, st = STYLE_OF[this.char], feet = this.y + this.height / 2;
+                    this.swing = null; this.attackTimer = 0;
+                    this.swingHitSet = new Set();
+                    this.activeHitbox = { x: this.x + x.d * (e.fwd || 0), y: e.pillar ? feet - e.h / 2 + 30 : this.y, w: e.w, h: e.h, type: 'BLINK', ttl: 6, multi: true,
+                        mirror: !e.radial, radial: !!e.radial, damage: e.dmg, bkb: e.bkb, kbg: e.kbg, angle: e.ang !== undefined ? e.ang : -0.5 };
+                    if (e.pillar) fx('pillar', this.x + x.d * (e.fwd || 0), feet, e.w, e.h, st + '!'); else { fx('explosion', this.x, this.y, e.w / 2, 0.5, st); fx('gust', this.x, this.y, e.w / 2, 1, st); }
+                    S.screenShake = Math.max(S.screenShake, 10); audio.playHit(true);
+                    if (sp.rebound) { this.vx = -x.d * sp.rebound; this.vy = -5; this.grounded = false; }
+                }
             } else { this.sx = null; this.armorT = Math.min(this.armorT, 2); }
+        } else if (x.k === 'bolt') {
+            if (x.t >= 10) { this.sx = null; this.activeMove = null; }
         }
     }
 
@@ -921,7 +952,7 @@ class Fighter {
                 if (sp.kind === 'dash') this.startDash(d, sp); else if (sp.kind === 'bubble') this.startBubble(d, sp); else this.startBlink(d, sp);
                 break;
             }
-            case 'SPIRAL': if (sp.kind === 'rocket') this.startRocket(sp); else if (sp.kind === 'erupt') this.startErupt(sp); else this.startSpiral(tx); break;
+            case 'SPIRAL': if (sp.kind === 'rocket') this.startRocket(sp); else if (sp.kind === 'erupt') this.startErupt(sp); else if (sp.kind === 'bolt') this.startBolt(sp); else this.startSpiral(tx); break;
             case 'SUPLEX': if (sp.kind === 'pound') this.startPound(sp); else this.startSuplex(tx); break;
             case 'HEADBUTT': this.startHeadbutt(); break;
         }
@@ -992,7 +1023,7 @@ class Fighter {
         let ang = Math.atan2(aim.y - this.y, aim.x - this.x);
         if (Math.sin(ang) > 0.3) ang = -ang;                                    // a recovery: never aimed down into the floor
         this.grounded = false; this.y -= 4;
-        this.startSx('rocket', 0, { ang });
+        this.startSx('rocket', 0, { ang, hits: 0 });
         this.swingHitSet = new Set();
         if (sp.armor) this.armorT = sp.frames + 6;
         this.facing = Math.cos(ang) >= 0 ? 1 : -1;
@@ -1001,12 +1032,35 @@ class Fighter {
         fx('rocket', this.x, this.y, 0, 0, STYLE_OF[this.char]);
     }
 
+    /** Volt's Lightning Rod: vanish and strike upward instantly, zapping and stunning everything along the bolt */
+    startBolt(sp) {
+        const aim = aimOf(this);
+        let ang = Math.atan2(aim.y - this.y, aim.x - this.x);
+        if (Math.sin(ang) > -0.5) ang = -Math.PI / 2 + Math.max(-0.6, Math.min(0.6, Math.cos(ang)));   // always mostly upward
+        const fx0 = this.x, fy0 = this.y;
+        this.jumpsLeft = Math.max(0, this.jumpsLeft - 1);
+        this.x = Math.min(WORLD.width - 20, Math.max(20, this.x + Math.cos(ang) * sp.dist)); this.y += Math.sin(ang) * sp.dist;
+        this.vx = Math.cos(ang) * 3; this.vy = -5; this.grounded = false;
+        this.startSx('bolt');
+        this.invincibleTimer = Math.max(this.invincibleTimer, 10);
+        this.swingHitSet = new Set();
+        this.activeHitbox = { x: (fx0 + this.x) / 2, y: (fy0 + this.y) / 2, w: Math.abs(this.x - fx0) + sp.w, h: Math.abs(this.y - fy0) + sp.w, type: 'SPIRAL', ttl: 8, multi: true,
+            damage: sp.dmg, bkb: 0, kbg: 0, angle: -1.5, stun: sp.stun, lift: 4 };
+        this.setMove('SPIRAL', 12); this.specialKind = 'SPIRAL'; this.specialDur = 12;
+        for (let i = 1; i <= 6; i++) this.ghosts.push({ x: fx0 + (this.x - fx0) * i / 7, y: fy0 + (this.y - fy0) * i / 7, alpha: 0.8 - i * 0.09, color: '#fde047' });
+        fx('blink', fx0, fy0, this.x, this.y); fx('gust', this.x, this.y, 120, 0, STYLE_OF[this.char]);
+        S.screenShake = Math.max(S.screenShake, 8); audio.playHit(true);
+    }
+
     /** Up-F eruption (attack only): a tall pillar erupts at your feet; you barely rise */
     startErupt(sp) {
         this.startSx('erupt');
+        const foe = nearestOf(this, foesOf(this).filter(isAlive));
+        if (foe && Math.hypot(foe.x - this.x, foe.y - this.y) < (sp.near || 650)) { this.sx.tx = foe.x; this.sx.ty = foe.y + foe.height / 2; }   // under them, on the ground or in mid-air
+        else { this.sx.tx = this.x; this.sx.ty = this.y + this.height / 2; }
         this.setMove('SPIRAL', sp.windup + 14);
         this.specialKind = 'SPIRAL'; this.specialDur = sp.windup + 14;
-        fx('pillar', this.x, this.y + this.height / 2, STAGE.width * sp.w, sp.h * 0.25, STYLE_OF[this.char]);     // the warning swell
+        fx('pillar', this.sx.tx, this.sx.ty, STAGE.width * sp.w, sp.h * 0.25, STYLE_OF[this.char]);     // the warning swell under the target
     }
 
     startDash(d, sp) {
@@ -1064,6 +1118,12 @@ class Fighter {
         if (sp.kind === 'lift') {                             // no attack: a gust that only shoves, or a smoke vanish
             fx('gust', this.x, this.y, sp.gust || 90, 0, STYLE_OF[this.char]);
             if (sp.gust) for (const t of foesOf(this)) { const dx = t.x - this.x, dy = t.y - this.y, d = Math.hypot(dx, dy); if (d < sp.gust && t.invincibleTimer <= 0 && !t.armorT) { t.vx += (dx / (d || 1)) * 9; t.vy -= 4; t.grounded = false; } }
+        }
+        if (sp.start) {                                       // Rubble Launch: a blast under you throws foes away, then you rise
+            const e = sp.start; this.swingHitSet = new Set();
+            this.activeHitbox = { x: this.x, y: this.y + 20, w: e.R * 2, h: e.R * 1.6, type: 'SPIRAL', ttl: 6, multi: true, radial: true, damage: e.dmg, bkb: e.bkb, kbg: e.kbg, angle: -0.9 };
+            fx('explosion', this.x, this.y + 30, e.R, 0.6, STYLE_OF[this.char]); fx('quake', this.x, this.y + this.height / 2, e.R * 2, 0, STYLE_OF[this.char]);
+            S.screenShake = Math.max(S.screenShake, 12);
         }
         this.setMove('SPIRAL', sp.frames);
         audio.playJump();
@@ -1177,7 +1237,7 @@ class Fighter {
 
     // ------------------------------------------------------------ ledges
     checkLedgeMagnet() {
-        if (this.grounded || this.isHanging || this.hitstun > 0 || this.ledgeBan > 0 || this.diving) return;
+        if (this.grounded || this.isHanging || this.hitstun > 0 || this.ledgeBan > 0 || this.diving || this.sx) return;
 
         const leftLedgeX = STAGE.x;
         const rightLedgeX = STAGE.x + STAGE.width;
@@ -2155,7 +2215,7 @@ function launch(attacker, defender, hb) {
     if (hb.stun) {                                          // headbutt: freeze them for 0.5 s, no launch
         defender.clashStunTimer = hb.stun;
         defender.vx = 0;
-        defender.vy = 0;
+        defender.vy = hb.lift ? -hb.lift : 0;
         S.screenShake = Math.max(S.screenShake, 14);
         audio.playHit(true);
         createParticles(defender.x, defender.y, '#a78bfa', 18);
@@ -2232,9 +2292,11 @@ function explodeOrb(o) {
     }
 }
 
+function dropOrb(o) { const k = orbs.indexOf(o); if (k >= 0) orbs.splice(k, 1); }
 function updateOrbs() {
-    for (let i = orbs.length - 1; i >= 0; i--) {
+    for (let i = Math.min(orbs.length, 64) - 1; i >= 0; i--) {
         const o = orbs[i];
+        if (!o) continue;                                         // a pop / explosion earlier in this pass removed orbs (this used to throw every frame and freeze the match)
         const ok = slowAt(o.x, o.y, o.owner);
         o.age = (o.age || 0) + 1;
         if (o.curve) {                                            // Void Orb bends toward the nearest foe
@@ -2246,18 +2308,18 @@ function updateOrbs() {
                 o.vx = Math.cos(a) * sp; o.vy = Math.sin(a) * sp;
             }
         }
-        if (o.cap) { o.capT++; o.vx *= 0.97; o.vy = -0.8; if (o.capT >= 180) { orbs.splice(i, 1); explodeOrb(o); continue; } }
+        if (o.cap) { o.capT++; o.vx *= 0.97; o.vy = -0.8; if (o.capT >= 180) { dropOrb(o); explodeOrb(o); continue; } }
         if (o.grav) o.vy += o.grav * ok;
         if (o.wobble) o.y += Math.sin(o.age * 0.22) * o.wobble * 0.35 * ok;
         o.x += o.vx * ok;
         o.y += o.vy * ok;
         o.life -= ok;
 
-        if (o.x < -600 || o.x > WORLD.width + 600 || o.y < -600 || o.y > WORLD.height + 600) { orbs.splice(i, 1); continue; }
+        if (o.x < -600 || o.x > WORLD.width + 600 || o.y < -600 || o.y > WORLD.height + 600) { dropOrb(o); continue; }
 
         const sr = o.r * 0.35;          // the stage only stops the orb's core, so big orbs can skim along the floor
         if (!o.flat && (!o.trap || o.cap) && o.x + sr > STAGE.x && o.x - sr < STAGE.x + STAGE.width && o.y + sr > STAGE.y && o.y - sr < STAGE.y + STAGE.height) {
-            orbs.splice(i, 1);
+            dropOrb(o);
             explodeOrb(o);
             continue;
         }
@@ -2280,7 +2342,7 @@ function updateOrbs() {
                     fx('explosion', o.x, o.y, 50, 0, 'water'); audio.playGrab();
                     hitOrb = true; break;
                 }
-                orbs.splice(i, 1);
+                dropOrb(o);
                 if (res === 'hit') explodeOrb(o);
                 else if (res === 'shield') {
                     audio.playShield();
@@ -2297,7 +2359,7 @@ function updateOrbs() {
         }
         if (hitOrb) continue;
 
-        if (o.life <= 0) { orbs.splice(i, 1); explodeOrb(o); }
+        if (o.life <= 0) { dropOrb(o); explodeOrb(o); }
     }
 }
 
