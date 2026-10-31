@@ -2,7 +2,7 @@
 import { S } from './core.js';
 import { Guide } from './guide.js';
 import { getLayout, setMode } from './layout.js';
-import { getGfx, setGfx } from './gfx.js';
+import { getGfx, setGfx, getHitboxes, setHitboxes } from './gfx.js';
 import { ACTIONS, bindings, keyLabel, codeName, setBinding, resetBindings } from './controls.js';
 
 const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -252,7 +252,9 @@ export class UI {
             <div class="lm-row"><span>Mobile button layout<small class="lm-sub">Move the grid, jump and shield buttons and resize them</small></span><button class="lm-key" data-edit-layout>Edit layout…</button></div>
             <div class="lm-row"><span>Graphics quality<small class="lm-sub">Auto adapts to your device. High is sharpest (phones look pixelated on Low)</small></span>
               <span class="lm-seg">${[['auto', 'Auto'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']].map(([m, t]) => `<button class="lm-segb${gfx === m ? ' on' : ''}" data-gfx="${m}">${t}</button>`).join('')}</span></div>
-            <div class="lm-row"><span>Fullscreen</span><button class="lm-key" data-fs>Toggle</button></div>
+            <div class="lm-row"><span>Show hitboxes<small class="lm-sub">Draws the red attack boxes (for learning the moves). Off by default</small></span>
+              <span class="lm-seg">${[[0, 'Off'], [1, 'On']].map(([m, t]) => `<button class="lm-segb${(getHitboxes() ? 1 : 0) === m ? ' on' : ''}" data-hb="${m}">${t}</button>`).join('')}</span></div>
+            <div class="lm-row"><span>Fullscreen<small class="lm-sub">Also the corner button on phones</small></span><button class="lm-key" data-fs>Toggle fullscreen</button></div>
             <h4 class="lm-group">PC controls (keyboard &amp; mouse)</h4>`;
         group = 'PC';
         for (const a of ACTIONS) {
@@ -263,9 +265,10 @@ export class UI {
         rows.innerHTML = html;
         rows.querySelectorAll('.lm-key[data-action]').forEach(b => b.addEventListener('click', () => this.startCapture(b.dataset.action, b)));
         rows.querySelectorAll('[data-gfx]').forEach(b => b.addEventListener('click', () => { setGfx(b.dataset.gfx); this.renderSettings(); }));
+        rows.querySelectorAll('[data-hb]').forEach(b => b.addEventListener('click', () => { setHitboxes(b.dataset.hb === '1'); this.renderSettings(); }));
         rows.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); this.renderSettings(); }));
         const fs = rows.querySelector('[data-fs]');
-        if (fs) fs.addEventListener('click', () => { try { if (document.fullscreenElement) document.exitFullscreen(); else { const p = document.documentElement.requestFullscreen(); if (p && p.catch) p.catch(() => {}); } } catch (e) { /* not allowed here */ } });
+        if (fs) fs.addEventListener('click', () => document.dispatchEvent(new Event('cbg-fs')));
         const ed = rows.querySelector('[data-edit-layout]');
         if (ed) ed.addEventListener('click', () => {
             if (!this.layoutEditor) return;

@@ -68,7 +68,7 @@ export class LobbyUI {
         this.q('[data-status]').className = 'lm-status' + (Online.status === 'closed' ? ' bad' : '');
         this.q('[data-mode]').textContent = hasRealtime()
             ? 'Connected through the online server.'
-            : 'This page cannot reach the internet (the sandboxed preview blocks network connections), so matches only work between tabs of this same browser. Open the GitHub Pages link or the downloaded game for real online play.';
+            : 'This page cannot reach the internet (the sandboxed preview blocks network connections), so matches only work between tabs of this same browser. Open https://siddanth12345.github.io/luminary/ (or the downloaded game) for real online play.';
         if (Online.status === 'connected') this.el.classList.add('lm-hidden');   // the match is starting
     }
 }

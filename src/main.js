@@ -73,6 +73,18 @@ function toggleFullscreen() {
         wantFs = true; enterFs();
     } catch (e) { /* ignore */ }
 }
+document.addEventListener('cbg-fs', toggleFullscreen);
+// No zooming on phones: lock the viewport, block pinch / double-tap zoom / ctrl-wheel zoom.
+(() => {
+    let v = document.querySelector('meta[name=viewport]');
+    if (!v) { v = document.createElement('meta'); v.name = 'viewport'; document.head.appendChild(v); }
+    v.content = 'width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover';
+    document.documentElement.style.touchAction = 'manipulation'; document.body.style.touchAction = document.body.style.touchAction || 'manipulation';
+    document.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
+    document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+    window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+})();
 // Safari leaves fullscreen on some swipes (e.g. sliding a button upward). Tell it we did not mean that:
 // touch gestures on the game never scroll / pinch / pull, and if it still drops out we re-enter on the next tap.
 document.addEventListener('fullscreenchange', () => { if (!inFs() && wantFs && S.gameState !== 'start') wantFs = true; });

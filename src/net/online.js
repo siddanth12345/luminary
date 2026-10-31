@@ -3,7 +3,7 @@
 //           streams snapshots.
 //   Guest : sends inputs, mirrors snapshots. See "Online play" in core.js.
 import { S, p1, p2, startMatchSequence, applyRemote, applySnapshot, NETHOOK, resetSnapshotState, removeFighter } from '../core.js';
-import { openTransport, hasRealtime } from './transport.js';
+import { openTransport, hasRealtime, onlineBlocked } from './transport.js';
 import { isDown } from '../controls.js';
 import { displayName } from '../account.js';
 import { getMyChar, charOf } from '../characters.js';
@@ -78,6 +78,7 @@ export async function hostRoom(code, mode = 'pvp') {
     set('waiting', 'Opening room…');
     try { Online.t = await openTransport(Online.code); } catch (e) { Online.role = null; set('closed', e.message); return false; }
     const t = Online.t;
+    if (t.enableRtc) t.enableRtc('host');
     t.onmessage = (m) => {
         Online.lastRecv = performance.now();
         switch (m.t) {
@@ -208,6 +209,7 @@ export async function joinRoom(code) {
     set('joining', 'Connecting…');
     try { Online.t = await openTransport(code); } catch (e) { Online.role = null; set('closed', e.message); return false; }
     const t = Online.t;
+    if (t.enableRtc) t.enableRtc('guest');
     const myId = Online.myId = Math.random().toString(36).slice(2, 8);
     let welcomed = false;
     t.onmessage = (m) => {
@@ -229,7 +231,7 @@ export async function joinRoom(code) {
     const hello = () => t.send({ t: 'hello', id: myId, name: Online.name, char: getMyChar() });
     hello();
     const retry = setInterval(() => { if (welcomed || Online.role !== 'guest') clearInterval(retry); else hello(); }, 500);
-    setTimeout(() => { if (!welcomed && Online.role === 'guest') { clearInterval(retry); leaveRoom(false); set('closed', 'No room with that code'); } }, 8000);
+    setTimeout(() => { if (!welcomed && Online.role === 'guest') { clearInterval(retry); leaveRoom(false); set('closed', 'No room with that code' + (t.local ? ' (this page cannot reach the internet: open the standalone link, see the lobby note)' : '')); } }, 15000);
     pingTimer = setInterval(() => Online.t && Online.t.send({ t: 'ping', id: myId }), 2000);
     return true;
 }
@@ -246,3 +248,21 @@ export function sendHeld(aim) {
 }
 export function requestRematch() { if (Online.role === 'guest' && Online.t) Online.t.send({ t: 'rematch' }); else if (Online.role === 'host') { if (Online.mode === 'lobby') beginLobbyMatch(); else beginMatch(); } }
 export { hasRealtime };
+
+
+// ---- connection badge: "Direct" = peer to peer (fast), "Relay" = through the public broker (slower)
+let badge = null;
+setInterval(() => {
+    const on = Online.role && Online.t && Online.status === 'connected' && S.gameState !== 'start';
+    if (!on) { if (badge) badge.style.display = 'none'; return; }
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.style.cssText = 'position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:14;pointer-events:none;font:800 11px system-ui,sans-serif;letter-spacing:.06em;padding:3px 10px;border-radius:10px;background:rgba(8,12,24,.75);border:1px solid rgba(148,163,184,.3)';
+        document.body.appendChild(badge);
+    }
+    const i = Online.t.info || { mode: 'relay', rtt: 0 };
+    const p2p = i.mode === 'p2p', local = i.mode === 'local';
+    badge.style.display = 'block';
+    badge.style.color = local ? '#a78bfa' : p2p ? '#4ade80' : '#fbbf24';
+    badge.textContent = '● ' + (local ? 'SAME BROWSER' : p2p ? 'DIRECT' : 'RELAY') + (i.rtt ? ' · ' + i.rtt + ' ms' : '');
+}, 1000);

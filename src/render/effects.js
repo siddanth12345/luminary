@@ -5,6 +5,11 @@
 import * as THREE from 'three';
 import { S, p1, p2, fighters, particles, shockwaves, koBeams, fxEvents, mouse, orbs, CHARGE_MAX } from '../core.js';
 import { wx, wy, clamp01, lerp, smooth, D2R } from './space.js';
+import { getHitboxes } from '../gfx.js';
+
+// colours per character style (main, bright)
+const PAL = { core: ['#a78bfa', '#ede9fe'], iron: ['#94a3b8', '#e2e8f0'], wind: ['#6ee7b7', '#ecfdf5'], fire: ['#fb923c', '#fde047'], water: ['#38bdf8', '#e0f2fe'], volt: ['#facc15', '#fef9c3'], dark: ['#7c3aed', '#c4b5fd'], rock: ['#a8a29e', '#d6d3d1'] };
+const pal = (c) => PAL[String(c || 'core').replace('!', '')] || PAL.core;
 
 const ADD = THREE.AdditiveBlending;
 
@@ -150,6 +155,7 @@ export class Effects {
             g.add(outer, inner); g.userData = { outer, inner }; g.visible = false; g.renderOrder = 6; scene.add(g); this.beamPool.push(g);
         }
 
+        this.showHB = getHitboxes(); window.addEventListener('cbg-hb', () => { this.showHB = getHitboxes(); });
         // ---- hitbox boxes (the original drew these as translucent red rectangles)
         this.hbPool = [];
         const hbGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -169,6 +175,27 @@ export class Effects {
             const halo = new THREE.Mesh(orbCore, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, blending: ADD, depthWrite: false, toneMapped: false }));
             mid.scale.setScalar(1.35); halo.scale.setScalar(2.1);
             g.add(core, mid, halo); g.userData = { core, mid, halo };
+            // other projectile designs (each character's own): rock, void orb, bubble
+            const rock = new THREE.Group();
+            const rm = new THREE.MeshStandardMaterial({ color: 0x78716c, flatShading: true, roughness: 1, metalness: 0, emissive: 0x3b3531, emissiveIntensity: 0.9 });
+            rock.add(new THREE.Mesh(new THREE.DodecahedronGeometry(0.95, 0), rm));
+            const chip = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0), new THREE.MeshStandardMaterial({ color: 0x57534e, flatShading: true, roughness: 1, emissive: 0x292524, emissiveIntensity: 0.9 }));
+            chip.position.set(0.55, 0.45, 0.35); rock.add(chip);
+            const vein = new THREE.Mesh(new THREE.IcosahedronGeometry(0.62, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color('#fb923c').multiplyScalar(1.5), transparent: true, opacity: 0.5, blending: ADD, depthWrite: false, toneMapped: false }));
+            vein.position.set(-0.25, -0.2, 0.5); rock.add(vein);
+            const voidG = new THREE.Group();
+            voidG.add(new THREE.Mesh(orbCore, new THREE.MeshBasicMaterial({ color: 0x07030f, toneMapped: false })));
+            const vr = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.09, 8, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color('#a855f7').multiplyScalar(2.2), transparent: true, opacity: 0.9, blending: ADD, depthWrite: false, toneMapped: false }));
+            const vr2 = vr.clone(); vr2.rotation.x = 1.1; voidG.add(vr, vr2);
+            voidG.add(new THREE.Mesh(orbCore, new THREE.MeshBasicMaterial({ color: new THREE.Color('#7c3aed').multiplyScalar(1.4), transparent: true, opacity: 0.22, blending: ADD, depthWrite: false, toneMapped: false })).translateZ(0).clone());
+            voidG.children[3].scale.setScalar(1.7);
+            const bub = new THREE.Group();
+            bub.add(new THREE.Mesh(orbCore, new THREE.MeshBasicMaterial({ color: new THREE.Color('#7dd3fc').multiplyScalar(1.4), transparent: true, opacity: 0.2, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })));
+            bub.add(new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color('#e0f2fe').multiplyScalar(2), transparent: true, opacity: 0.85, blending: ADD, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })));
+            const hl = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.7, 24, 1, 2.2, 1.3), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, toneMapped: false, side: THREE.DoubleSide }));
+            hl.position.z = 0.05; bub.add(hl);
+            rock.visible = voidG.visible = bub.visible = false;
+            g.add(rock, voidG, bub); Object.assign(g.userData, { rock, voidG, bub, vr, vr2 });
             g.visible = false; g.renderOrder = 6; this.scene.add(g);
             return g;
         };
@@ -318,14 +345,14 @@ export class Effects {
                     this.sparks(pos, '#e0f2fe', 36, 520, 0.6);
                     break;
                 case 'stomp': {          // a = width of the shockwave, b = facing (0 = both ways)
-                    const w = e.a || 250, g = new THREE.Vector3(pos.x, this.stageTop + 1, 0);
-                    this.ring(g, 6, w * 0.55, 0.38, '#a78bfa', 'ground');
+                    const w = e.a || 250, g = new THREE.Vector3(pos.x, this.stageTop + 1, 0), P = pal(e.c);
+                    this.ring(g, 6, w * 0.55, 0.38, P[0], 'ground');
                     this.ring(g.clone().setY(this.stageTop + 2), 4, w * 0.3, 0.3, '#ffffff', 'ground');
                     const dirs = e.b ? [e.b] : [-1, 1];
                     for (const d of dirs) {
                         for (let i = 0; i < 8; i++) {
                             const px = g.x + d * (w * 0.5 * (i + 1) / 8) * (e.b ? 1 : 1);
-                            this.sparks(new THREE.Vector3(px, this.stageTop + 4, 0), '#c4b5fd', 2, 220, 0.35, 'up');
+                            this.sparks(new THREE.Vector3(px, this.stageTop + 4, 0), P[1], 2, 220, 0.35, 'up');
                         }
                     }
                     this.star(g.clone().setY(this.stageTop + 20), 70, '#ffffff', 0.16);
@@ -351,12 +378,76 @@ export class Effects {
                     this.ring(pos, 6, 70 + 80 * e.a, 0.3, '#a78bfa', 'screen');
                     break;
                 case 'explosion': {      // a = radius, b = charge
-                    const R = e.a || 100;
+                    const R = e.a || 100, P = pal(e.c);
                     this.star(pos, R * 1.5, '#ffffff', 0.3);
-                    this.star(pos, R * 1.1, '#c4b5fd', 0.42, 4);
-                    this.ring(pos, 10, R * 1.15, 0.45, '#a78bfa', 'screen');
+                    this.star(pos, R * 1.1, P[0], 0.42, 4);
+                    this.ring(pos, 10, R * 1.15, 0.45, P[0], 'screen');
                     this.ring(pos, 6, R * 0.7, 0.3, '#ffffff', 'screen');
-                    this.sparks(pos, '#ddd6fe', 18 + Math.floor(26 * e.b), 300 + R * 3, 0.55);
+                    this.sparks(pos, P[1], 18 + Math.floor(26 * e.b), 300 + R * 3, 0.55);
+                    break;
+                }
+                case 'pillar': {         // a = width, b = height, c = style (a trailing ! = the eruption itself; without it only the warning swell)
+                    const P = pal(e.c), big = String(e.c || '').includes('!'), w = Math.max(40, e.a || 100), h = Math.max(60, e.b || 200);
+                    const g = new THREE.Vector3(pos.x, this.stageTop + 1, 0);
+                    const mk = (col, rad, op) => new THREE.Mesh(new THREE.CylinderGeometry(rad, rad * 1.25, 1, 20, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(2), transparent: true, opacity: op, blending: ADD, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+                    const outer = mk(P[0], w / 2, 0.8), inner = mk(P[1], w / 4, 0.95);
+                    outer.renderOrder = inner.renderOrder = 6;
+                    this.scene.add(outer, inner);
+                    const H = big ? h : h * 0.5, dur = big ? 0.6 : 0.35;
+                    this.timed.push({ obj: outer, t: 0, dur, step: (u) => {
+                        const rise = big ? Math.min(1, u / 0.18) : u, fade = big ? 1 - Math.pow(Math.max(0, (u - 0.25) / 0.75), 1.5) : 1 - u;
+                        const hh = Math.max(1, H * (0.08 + 0.92 * rise));
+                        outer.scale.set(1 - u * 0.4, hh, 1 - u * 0.4); inner.scale.set(1 - u * 0.7, hh * 0.9, 1 - u * 0.7);
+                        outer.position.set(g.x, g.y + hh / 2, 0); inner.position.set(g.x, g.y + hh * 0.45, 0);
+                        outer.material.opacity = 0.8 * fade; inner.material.opacity = 0.95 * fade;
+                    }, free: () => { this.scene.remove(inner); inner.geometry.dispose(); inner.material.dispose(); outer.geometry.dispose(); outer.material.dispose(); } });
+                    this.ring(g, 6, w * 0.9, 0.4, P[0], 'ground');
+                    if (big) {
+                        this.ring(g.clone().setY(this.stageTop + 2), 4, w * 1.5, 0.5, P[1], 'ground');
+                        for (let i = 0; i < 4; i++) this.sparks(new THREE.Vector3(g.x + (Math.random() - 0.5) * w, g.y + 6, 0), P[i % 2], 7, 300 + h, 0.7, 'up');
+                        this.star(g.clone().setY(this.stageTop + 30), w * 0.9, '#ffffff', 0.2);
+                    }
+                    break;
+                }
+                case 'quake': {          // heavy ground slam: cracks racing outward + dust
+                    const P = pal(e.c), w = e.a || 300, y = this.stageTop + 2;
+                    this.ring(new THREE.Vector3(pos.x, y, 0), 10, w * 1.3, 0.6, P[0], 'ground');
+                    for (const d of [-1, 1]) for (let k = 0; k < 3; k++) {
+                        const pts = []; let x = pos.x, z = 0; const len = w * (0.6 + Math.random() * 0.7), dz = (Math.random() - 0.5) * 1.4;
+                        for (let i = 0; i <= 10; i++) { pts.push(new THREE.Vector3(x, y, z)); x += d * len / 10; z += dz * 6 + (Math.random() - 0.5) * 16; }
+                        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+                        const mat = new THREE.LineBasicMaterial({ color: new THREE.Color(P[1]).multiplyScalar(1.6), transparent: true, opacity: 1, toneMapped: false });
+                        const line = new THREE.Line(geo, mat); line.renderOrder = 5; this.scene.add(line);
+                        this.timed.push({ obj: line, t: 0, dur: 0.9, step: (u) => { mat.opacity = 1 - u * u; }, free: () => { geo.dispose(); mat.dispose(); } });
+                    }
+                    for (let i = 0; i < 14; i++) this.sparks(new THREE.Vector3(pos.x + (Math.random() - 0.5) * w * 1.2, y + 4, (Math.random() - 0.5) * 80), '#a8a29e', 2, 140, 0.8, 'up');
+                    break;
+                }
+                case 'gust': {           // wind ring; b = 1 means it pulls inward
+                    const P = pal(e.c), R = e.a || 120;
+                    if (e.b) { this.ring(pos, R * 1.1, 10, 0.4, P[0], 'screen'); this.ring(pos, R * 0.7, 6, 0.32, P[1], 'screen'); }
+                    else { this.ring(pos, 10, R, 0.4, P[0], 'screen'); this.ring(pos, 6, R * 0.6, 0.3, P[1], 'screen'); this.sparks(pos, P[1], 14, R * 2, 0.45); }
+                    break;
+                }
+                case 'trail': {          // a = travel angle (sim), b = 1 for a dash streak
+                    const P = pal(e.c), wa = -(e.a || 0);
+                    this.spray(pos, wa + Math.PI, P[Math.random() < 0.5 ? 0 : 1], e.b ? 3 : 4, 160, 0.5, 0.3);
+                    this.star(pos, e.b ? 40 : 52, P[1], 0.12, 4);
+                    break;
+                }
+                case 'flame': {          // a = signed length (sign = facing), b = 1 on the final burst
+                    const L = Math.abs(e.a || 200), dirx = (e.a || 1) < 0 ? -1 : 1, wa = dirx < 0 ? Math.PI : 0;
+                    for (let i = 0; i < 4; i++) {
+                        const p = pos.clone(); p.x += dirx * L * (0.2 + 0.7 * Math.random()); p.y += (Math.random() - 0.5) * 40;
+                        this.spray(p, wa + 0.2, i % 2 ? '#fb923c' : '#fde047', 3, 140 + L, 0.6, 0.35);
+                        this.star(p, 26 + Math.random() * 26, i % 2 ? '#fb923c' : '#fef08a', 0.16, 4);
+                    }
+                    if (e.b) { const p = pos.clone(); p.x += dirx * L * 0.85; this.star(p, 130, '#fb923c', 0.28); this.ring(p, 10, 110, 0.35, '#fde047', 'screen'); }
+                    break;
+                }
+                case 'rocket': {
+                    const P = pal(e.c);
+                    this.ring(pos, 6, 90, 0.35, P[0], 'screen'); this.star(pos, 110, P[1], 0.22); this.sparks(pos, P[1], 20, 380, 0.5);
                     break;
                 }
                 case 'counter':
@@ -503,7 +594,7 @@ export class Effects {
         // ---- hitboxes
         fighters.forEach((f, i) => {
             const m = this.hbPool[i], hb = f.activeHitbox; if (!m) return;
-            if (!hb) { m.visible = false; return; }
+            if (!hb || !this.showHB) { m.visible = false; return; }
             m.visible = true;
             m.position.set(wx(hb.x), wy(hb.y), 0); m.scale.set(hb.w, hb.h, 44);
         });
@@ -516,8 +607,21 @@ export class Effects {
             g.visible = true;
             const pulse = 1 + Math.sin(this.chargeT * 18 + i) * 0.07;
             g.position.set(wx(o.x), wy(o.y), 0);
-            this.#paintOrb(g, o.r * pulse, o.color, 1);
-            if (Math.random() < 0.8) this.sparks(g.position.clone(), o.color, 1, 70, 0.28);
+            const kind = o.kind || 0, u = g.userData, alt = kind === 'boulder' || kind === 'void' || kind === 'bubble';
+            u.core.visible = u.mid.visible = u.halo.visible = !alt;
+            u.rock.visible = kind === 'boulder'; u.voidG.visible = kind === 'void'; u.bub.visible = kind === 'bubble';
+            if (kind === 'water') { this.#paintOrb(g, o.r * pulse, '#38bdf8', 1); if (Math.random() < 0.7) this.sparks(g.position.clone(), '#bae6fd', 1, 60, 0.3, 'down'); }
+            else if (kind === 'boulder') {
+                g.scale.setScalar(o.r); u.rock.rotation.x += dt * 4; u.rock.rotation.y += dt * 3;
+                if (Math.random() < 0.9) this.sparks(g.position.clone(), '#a8a29e', 1, 90, 0.4, 'down');
+                if (Math.random() < 0.3) this.sparks(g.position.clone(), '#fb923c', 1, 80, 0.25);
+            } else if (kind === 'void') {
+                g.scale.setScalar(o.r * pulse); u.vr.rotation.z += dt * 5; u.vr2.rotation.z -= dt * 7;
+                if (Math.random() < 0.7) this.sparks(g.position.clone(), '#a855f7', 1, 100, 0.35);
+            } else if (kind === 'bubble') {
+                g.scale.setScalar(o.r * (1 + Math.sin(this.chargeT * 7 + i) * (o.cap ? 0.05 : 0.025)));
+                if (Math.random() < 0.15) this.sparks(g.position.clone(), '#e0f2fe', 1, 50, 0.4, 'up');
+            } else { this.#paintOrb(g, o.r * pulse, o.color, 1); if (Math.random() < 0.8) this.sparks(g.position.clone(), o.color, 1, 70, 0.28); }
         }
         // ---- the orb a fighter is charging (grows with the charge)
         fighters.forEach((f, i) => {

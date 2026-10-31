@@ -23,7 +23,7 @@ export const SP = {
         N: { kind: 'orb', name: 'Bastion Core', desc: 'A slow, huge orb that flies far. Big charge, up to 26 damage and heavy knockback.', cd: 150,
              speed: [8, 7], r: [28, 56], dmg: [12, 26], R: [110, 200], bkb: [8, 14], kbg: 0.7, life: 440 },
         S: { kind: 'dash', name: 'Shield Rush', desc: 'An armoured charge: you do not flinch while it lasts. 22 damage.', cd: 110, dist: 300, frames: 17, armor: true, dmg: 22, bkb: 14, kbg: 1.0, w: 96, h: 90, ang: 0.35, lock: 30 },
-        U: { kind: 'rise', name: 'Rocket Hoist', desc: 'A slow, short lift with armour and one huge hit at the top (20).', cd: 150, frames: 30, vy: 7.5, armor: true, every: 99, hitDmg: 0, lastDmg: 20, lastBkb: 13, lastKbg: 1.2, w: 150, h: 130 },
+        U: { kind: 'rocket', name: 'Rocket Hoist', desc: 'Launch like an armoured rocket toward where you aim (steer with the mouse or stick). You do not flinch, and you plough through foes for 20.', cd: 150, frames: 28, speed: 8.5, turn: 0.045, armor: true, dmg: 20, bkb: 13, kbg: 1.2, w: 150, h: 130 },
         DG: { kind: 'pound', name: 'Seismic Stomp', desc: 'Wind up, then a ground-pound shockwave (28). Slow but huge.', cd: 150, windup: 20, w: 0.22, h: 70, dmg: 28, bkb: 12, kbg: 1.1, ang: -1.25, stun: 0, lock: 50, hits: 1 },
         DA: { kind: 'dive', name: 'Anvil Drop', desc: 'A fast, heavy plunge. No small hits, one 24-damage impact.', cd: 140, vy: 30, hitDmg: 0, every: 99, impactDmg: 24, impactW: 0.16, stun: false, bkb: 12, kbg: 1.1, ang: -1.3, lock: 30 },
     },
@@ -31,7 +31,7 @@ export const SP = {
         N: { kind: 'burst', name: 'Gale Burst', desc: 'No projectile: a close-range blast of wind that shoves everyone around you away. 8 to 14.', cd: 70,
              frames: 12, every: 12, R: [110, 170], dmg: [8, 14], bkb: [9, 12], kbg: 0.9, radial: true },
         S: { kind: 'dash', name: 'Gust Dash', desc: 'A very fast long dash that slashes through anyone on the way (9).', cd: 50, dist: 380, frames: 8, armor: false, dmg: 9, bkb: 8, kbg: 0.9, w: 84, h: 80, ang: 0.15, multi: true, lock: 14 },
-        U: { kind: 'rise', name: 'Updraft', desc: 'The highest, fastest rise in the game. Small puff at the top (8).', cd: 100, frames: 40, vy: 13.5, every: 99, hitDmg: 0, lastDmg: 8, lastBkb: 9, lastKbg: 0.9, w: 100, h: 100 },
+        U: { kind: 'lift', name: 'Updraft', desc: 'No attack at all: a very high, very fast rise on a gust that only shoves nearby foes away.', cd: 100, frames: 40, vy: 13.5, gust: 170 },
         DG: { kind: 'pound', name: 'Cyclone Kick', desc: 'Spin on the spot: two quick pulses (9 each) that fling nearby foes away from you.', cd: 70, windup: 0, w: 0.09, h: 90, dmg: 9, bkb: 6, kbg: 0.7, ang: -1.2, stun: 0, lock: 22, hits: 2, every: 8, radial: true, centred: true },
         DA: { kind: 'dive', name: 'Dive Kick', desc: 'A quick diagonal kick dive (13) that bounces you up.', cd: 80, vy: 22, vx: 8, hitDmg: 0, every: 99, impactDmg: 13, impactW: 0.08, stun: false, bkb: 9, kbg: 1.0, ang: -1.0, lock: 10 },
     },
@@ -39,15 +39,15 @@ export const SP = {
         N: { kind: 'breath', name: 'Flamethrower', desc: 'Short-range fire stream in front of you. Hold longer for a longer flame. Pushes, then a final burst.', cd: 100,
              frames: 26, every: 5, w: [200, 330], h: 90, dmg: 3, lastDmg: 8, bkb: 9, kbg: 0.8 },
         S: { kind: 'dash', name: 'Flame Lunge', desc: 'A short fiery lunge that launches foes upward (13).', cd: 70, dist: 250, frames: 11, armor: false, dmg: 13, bkb: 12, kbg: 1.1, w: 90, h: 90, ang: 0.95, lock: 20 },
-        U: { kind: 'rise', name: 'Phoenix Rise', desc: 'Rise in a column of fire: three small hits, then a launch (12).', cd: 120, frames: 34, vy: 10, every: 8, hitDmg: 2, lastDmg: 12, lastBkb: 12, lastKbg: 1.2, w: 110, h: 130 },
+        U: { kind: 'rocket', name: 'Phoenix Dash', desc: 'Burst into a fire rocket and fly toward your aim (steer it). Burns every foe you pass through for 12.', cd: 120, frames: 30, speed: 14, turn: 0.085, dmg: 12, bkb: 11, kbg: 1.1, w: 120, h: 120 },
         DG: { kind: 'pound', name: 'Fire Pillar', desc: 'A pillar of flame erupts in front of you and launches foes (16).', cd: 90, windup: 10, w: 0.07, h: 260, off: 130, dmg: 16, bkb: 12, kbg: 1.2, ang: -1.35, stun: 0, lock: 26, hits: 1 },
         DA: { kind: 'dive', name: 'Meteor Fist', desc: 'A straight-down fiery punch with a floor slam (18).', cd: 110, vy: 26, hitDmg: 2, every: 6, impactDmg: 18, impactW: 0.12, stun: false, bkb: 11, kbg: 1.1, ang: -1.2, lock: 20 },
     },
     tide: {
-        N: { kind: 'orb', name: 'Bubble', desc: 'A big wobbly bubble that drifts far (long range). Pops and drags foes in.', cd: 100,
+        N: { kind: 'orb', look: 'water', name: 'Water Orb', desc: 'A big wobbling water orb that drifts far (long range). Bursts and drags foes toward it.', cd: 100,
              speed: [7, 6.5], r: [22, 40], dmg: [7, 15], R: [90, 150], bkb: [3, 5], kbg: 0.45, life: 460, wobble: 5, pull: 5 },
-        S: { kind: 'wave', name: 'Tidal Wave', desc: 'A low, wide wave that rolls far along the ground (12).', cd: 90, speed: 12, r: 30, dmg: 12, R: 70, bkb: 9, kbg: 0.9, life: 380, flat: true },
-        U: { kind: 'rise', name: 'Geyser', desc: 'Rise on a water jet that also launches foes above you (10).', cd: 110, frames: 28, vy: 10, every: 99, hitDmg: 0, lastDmg: 10, lastBkb: 12, lastKbg: 1.1, w: 100, h: 160 },
+        S: { kind: 'bubble', name: 'Bubble Trap', desc: 'Fire a slow bubble. The first foe it touches is trapped inside until it pops: after 3 seconds, on the floor, or when someone hits it. The pop deals 9.', cd: 150, speed: 5.5, r: 46, life: 160, popDmg: 9, R: 95, bkb: 7, kbg: 0.7 },
+        U: { kind: 'erupt', name: 'Geyser', desc: 'Attack only: a tall water pillar erupts at your feet and launches foes high. You barely rise.', cd: 130, windup: 10, hop: -7, h: 420, w: 0.06, dmg: 11, bkb: 12, kbg: 1.2 },
         DG: { kind: 'pound', name: 'Whirlpool', desc: 'A big pull: drags everyone nearby toward you (8).', cd: 90, windup: 8, w: 0.3, h: 120, dmg: 8, bkb: 3, kbg: 0.3, ang: -1.0, stun: 0, lock: 30, hits: 1, pull: 6, centred: true },
         DA: { kind: 'dive', name: 'Splash Dive', desc: 'A plunge ending in a wide splash that shoves foes aside (12).', cd: 90, vy: 22, hitDmg: 0, every: 99, impactDmg: 12, impactW: 0.2, stun: false, bkb: 8, kbg: 0.9, ang: -0.7, lock: 20 },
     },
@@ -60,15 +60,15 @@ export const SP = {
         DA: { kind: 'dive', name: 'Bolt Dive', desc: 'The fastest dive: a stunning impact (12).', cd: 90, vy: 32, hitDmg: 1, every: 5, impactDmg: 12, impactW: 0.1, stun: true, stunFrames: 28 },
     },
     umbra: {
-        N: { kind: 'orb', name: 'Void Orb', desc: 'A slow orb that curves toward your foe. 9 to 15.', cd: 110,
-             speed: [9, 8], r: [14, 24], dmg: [9, 15], R: [80, 115], bkb: [5, 8], kbg: 0.6, life: 300, curve: 0.045 },
-        S: { kind: 'tp', name: 'Shadow Step', desc: 'Teleports behind your nearest foe and stabs (14). Without a foe near, a short blink.', cd: 80, dist: 200, behind: true, swing: 'SP_umbra_S', dmg: 14, bkb: 11, kbg: 1.1, w: 90, h: 70 },
-        U: { kind: 'rise', name: 'Smoke Vanish', desc: 'Invisible-quick, invincible rise with a puff at the top (8).', cd: 120, frames: 26, vy: 10.5, inv: 22, every: 99, hitDmg: 0, lastDmg: 8, lastBkb: 9, lastKbg: 0.9, w: 100, h: 100 },
-        DG: { kind: 'pound', name: 'Void Pit', desc: 'Marks the foe\'s spot (or in front of you): after a short delay a pillar of shadow erupts (15).', cd: 100, windup: 26, w: 0.07, h: 200, dmg: 15, bkb: 11, kbg: 1.1, ang: -1.35, stun: 0, lock: 12, hits: 1, atTarget: true },
-        DA: { kind: 'dive', name: 'Dagger Plunge', desc: 'A steep stab-dive with a sharp impact (12).', cd: 80, vy: 28, hitDmg: 0, every: 99, impactDmg: 12, impactW: 0.07, stun: false, bkb: 10, kbg: 1.0, ang: -1.1, lock: 12 },
+        N: { kind: 'orb', look: 'void', name: 'Void Orb', desc: 'A slow orb that bends a little toward your foe. 8 to 12.', cd: 160,
+             speed: [8.5, 7.5], r: [14, 22], dmg: [8, 12], R: [75, 105], bkb: [4, 6], kbg: 0.5, life: 300, curve: 0.02 },
+        S: { kind: 'tp', name: 'Shadow Step', desc: 'Teleports behind a foe close to you and stabs (10). Slow to recover.', cd: 130, lock: 50, dist: 190, behind: true, near: 380, swing: 'SP_umbra_S', dmg: 10, bkb: 9, kbg: 0.9, w: 90, h: 70 },
+        U: { kind: 'lift', name: 'Smoke Vanish', desc: 'No attack: you vanish in smoke, untouchable for a moment, and reappear high above.', cd: 150, frames: 20, vy: 13, inv: 18 },
+        DG: { kind: 'pound', name: 'Void Pit', desc: 'Marks the foe\'s spot (or in front of you): after a clear delay a pillar of shadow erupts (12).', cd: 150, windup: 32, w: 0.07, h: 200, dmg: 12, bkb: 9, kbg: 0.9, ang: -1.35, stun: 0, lock: 24, hits: 1, atTarget: true },
+        DA: { kind: 'dive', name: 'Dagger Plunge', desc: 'A steep stab-dive with a sharp impact (10).', cd: 120, vy: 27, hitDmg: 0, every: 99, impactDmg: 10, impactW: 0.07, stun: false, bkb: 8, kbg: 0.9, ang: -1.1, lock: 18 },
     },
     terra: {
-        N: { kind: 'orb', name: 'Boulder', desc: 'A heavy boulder thrown in an arc: up to 30 damage. Slow and loud.', cd: 170,
+        N: { kind: 'orb', look: 'boulder', name: 'Boulder', desc: 'A heavy boulder thrown in an arc: up to 30 damage. Slow and loud.', cd: 170,
              speed: [10, 9], r: [34, 62], dmg: [14, 30], R: [120, 220], bkb: [10, 16], kbg: 0.8, life: 220, grav: 0.3 },
         S: { kind: 'dash', name: 'Boulder Roll', desc: 'A long, armoured roll for 26 damage. Long recovery.', cd: 160, dist: 420, frames: 17, armor: true, dmg: 26, bkb: 15, kbg: 1.1, w: 110, h: 100, ang: 0.4, lock: 70 },
         U: { kind: 'rise', name: 'Rock Lift', desc: 'A very slow armoured lift with a crushing hit at the top (24).', cd: 170, frames: 36, vy: 6.5, armor: true, every: 99, hitDmg: 0, lastDmg: 24, lastBkb: 14, lastKbg: 1.2, w: 170, h: 150 },
@@ -77,6 +77,7 @@ export const SP = {
     },
 };
 
+export const STYLE_OF = { luminent: 'core', bulwark: 'iron', zephyr: 'wind', ember: 'fire', tide: 'water', volt: 'volt', umbra: 'dark', terra: 'rock' };
 export const spec = (id, slot) => (SP[id] || SP.luminent)[slot];
 export const SLOT_OF = { CORE: 'N', BLINK: 'S', SPIRAL: 'U', SUPLEX: 'DG', HEADBUTT: 'DA' };
 export const lerpR = (r, c) => r[0] + (r[1] - r[0]) * c;
