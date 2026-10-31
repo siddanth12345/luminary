@@ -183,26 +183,35 @@ function updateAimMatrix() {
 
     vectorElem.textContent = `dx: ${Math.round(mouse.dx)} | dy: ${Math.round(mouse.dy)}`;
 
+    // Per-character F special names (J swings are shared)
+    const cid = (typeof p1 !== 'undefined' && p1 && p1.char) ? p1.char : getMyChar();
+    const spN = spec(cid, 'N'), spS = spec(cid, 'S'), spU = spec(cid, 'U');
+    const spDG = spec(cid, 'DG'), spDA = spec(cid, 'DA');
+    const nName = spN.name || 'Core';
+    const sName = spS.name || 'Side Special';
+    const uName = spU.name || 'Up Special';
+    const dName = (spDG.name || 'Down') + ' / ' + (spDA.name || 'Air Down');
+
     switch (mouse.direction) {
         case 'UP':
             arrowElem.textContent = '⬆';
-            labelElem.textContent = 'UP  •  J: Up Slash  •  F: Rising Spiral';
+            labelElem.textContent = `UP  •  J: Up Slash  •  F: ${uName}`;
             break;
         case 'DOWN':
             arrowElem.textContent = '⬇';
-            labelElem.textContent = 'DOWN  •  J: Down Strike  •  F: Suplex / Headbutt';
+            labelElem.textContent = `DOWN  •  J: Down Strike  •  F: ${dName}`;
             break;
         case 'SIDE_LEFT':
             arrowElem.textContent = '⬅';
-            labelElem.textContent = 'SIDE (LEFT)  •  J: Side Slash  •  F: Blink Slash';
+            labelElem.textContent = `SIDE (LEFT)  •  J: Side Slash  •  F: ${sName}`;
             break;
         case 'SIDE_RIGHT':
             arrowElem.textContent = '➡';
-            labelElem.textContent = 'SIDE (RIGHT)  •  J: Side Slash  •  F: Blink Slash';
+            labelElem.textContent = `SIDE (RIGHT)  •  J: Side Slash  •  F: ${sName}`;
             break;
         default:
             arrowElem.textContent = '⏺';
-            labelElem.textContent = (forcedNeutral ? 'NEUTRAL (held)' : 'NEUTRAL') + '  •  J: Jab  •  hold F: CBG Core';
+            labelElem.textContent = (forcedNeutral ? 'NEUTRAL (held)' : 'NEUTRAL') + `  •  J: Jab  •  hold F: ${nName}`;
             break;
     }
 }
@@ -771,11 +780,19 @@ class Fighter {
         } else if (x.k === 'breath') {
             const sp = spec(this.char, 'N');
             this.activeMove = { type: 'CORE', t: 3 };
+            // Re-aim every tick so the stream tracks the cursor / aim matrix while it fires
+            {
+                const aim = aimOf(this);
+                let adx = aim.x - this.x, ady = aim.y - this.y;
+                let alen = Math.hypot(adx, ady);
+                if (alen < 1) { adx = x.dx !== undefined ? x.dx : f; ady = x.dy !== undefined ? x.dy : 0; alen = Math.hypot(adx, ady) || 1; }
+                adx /= alen; ady /= alen;
+                x.dx = adx; x.dy = ady; x.ang = Math.atan2(ady, adx);
+                if (Math.abs(adx) > 0.15) this.facing = adx > 0 ? 1 : -1;
+            }
             if (x.t < sp.frames && x.t % sp.every === 0) {
                 const w = lerpR(sp.w, x.c), last = x.t + sp.every >= sp.frames;
-                // Fall back to horizontal facing if angle was never set (safety)
-                const dx = x.dx !== undefined ? x.dx : f, dy = x.dy !== undefined ? x.dy : 0;
-                const ang = x.ang !== undefined ? x.ang : (f > 0 ? 0 : Math.PI);
+                const dx = x.dx, dy = x.dy, ang = x.ang;
                 const halfL = w / 2, halfT = sp.h / 2;
                 // AABB that bounds the oriented stream rectangle (length w, thickness h)
                 const extX = Math.abs(dx) * halfL + Math.abs(dy) * halfT;
