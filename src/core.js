@@ -773,12 +773,24 @@ class Fighter {
             this.activeMove = { type: 'CORE', t: 3 };
             if (x.t < sp.frames && x.t % sp.every === 0) {
                 const w = lerpR(sp.w, x.c), last = x.t + sp.every >= sp.frames;
+                // Fall back to horizontal facing if angle was never set (safety)
+                const dx = x.dx !== undefined ? x.dx : f, dy = x.dy !== undefined ? x.dy : 0;
+                const ang = x.ang !== undefined ? x.ang : (f > 0 ? 0 : Math.PI);
+                const halfL = w / 2, halfT = sp.h / 2;
+                // AABB that bounds the oriented stream rectangle (length w, thickness h)
+                const extX = Math.abs(dx) * halfL + Math.abs(dy) * halfT;
+                const extY = Math.abs(dy) * halfL + Math.abs(dx) * halfT;
+                const cx = this.x + dx * (halfL + 16);
+                const cy = this.y + dy * (halfL + 16);
                 this.swingHitSet = new Set();
-                this.activeHitbox = { x: this.x + f * (w / 2 + 16), y: this.y - 6, w, h: sp.h, type: 'CORE', ttl: sp.every, multi: true,
-                    damage: last ? sp.lastDmg : sp.dmg, bkb: last ? sp.bkb : 0, kbg: last ? sp.kbg : 0, angle: f > 0 ? -0.5 : Math.PI + 0.5,
-                    fixed: last ? null : { vx: f * 3.5, vy: -1, hitstun: 12 } };
-                createParticles(this.x + f * w * 0.5, this.y - 6, '#fb923c', 8); createParticles(this.x + f * w * 0.8, this.y - 6, '#fde047', 5);
-                fx('flame', this.x + f * 24, this.y - 6, f * w, last ? 1 : 0, STYLE_OF[this.char]);
+                this.activeHitbox = { x: cx, y: cy, w: extX * 2, h: extY * 2, type: 'CORE', ttl: sp.every, multi: true,
+                    damage: last ? sp.lastDmg : sp.dmg, bkb: last ? sp.bkb : 0, kbg: last ? sp.kbg : 0,
+                    angle: last ? ang - 0.15 * Math.sign(dx || 1) : ang,
+                    fixed: last ? null : { vx: dx * 3.5, vy: dy * 3.5 - 0.4, hitstun: 12 } };
+                createParticles(this.x + dx * w * 0.5, this.y + dy * w * 0.5, '#fb923c', 8);
+                createParticles(this.x + dx * w * 0.8, this.y + dy * w * 0.8, '#fde047', 5);
+                // a = aim angle (sim rad), b = +/- length (sign marks final burst)
+                fx('flame', this.x + dx * 24, this.y + dy * 24, ang, last ? w : -w, STYLE_OF[this.char]);
             }
             if (x.t >= sp.frames + 6) { this.sx = null; this.activeMove = null; }
         } else if (x.k === 'pound') {
@@ -963,8 +975,15 @@ class Fighter {
         const sp = spec(this.char, 'N');
         if (sp.kind === 'burst') return this.startSx('burst', charge);
         if (sp.kind === 'breath') {
-            if (tx !== undefined && Math.abs(tx - this.x) > 20) this.facing = tx > this.x ? 1 : -1;
-            return this.startSx('breath', charge);
+            // Omnidirectional: aim at cursor / aim-matrix (mobile) / remote aim
+            const ax = tx !== undefined ? tx : aimOf(this).x;
+            const ay = ty !== undefined ? ty : aimOf(this).y;
+            let dx = ax - this.x, dy = ay - this.y;
+            let len = Math.hypot(dx, dy);
+            if (len < 1) { dx = this.facing; dy = 0; len = 1; }
+            dx /= len; dy /= len;
+            if (Math.abs(dx) > 0.15) this.facing = dx > 0 ? 1 : -1;
+            return this.startSx('breath', charge, { ang: Math.atan2(dy, dx), dx, dy });
         }
         let dx = tx - this.x, dy = ty - this.y;
         let len = Math.hypot(dx, dy);

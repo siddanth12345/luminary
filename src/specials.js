@@ -36,7 +36,7 @@ export const SP = {
         DA: { kind: 'dive', name: 'Dive Kick', desc: 'A quick diagonal kick dive (13) that bounces you up.', cd: 80, vy: 22, vx: 8, hitDmg: 0, every: 99, impactDmg: 13, impactW: 0.08, stun: false, bkb: 9, kbg: 1.0, ang: -1.0, lock: 10 },
     },
     ember: {
-        N: { kind: 'breath', name: 'Flamethrower', desc: 'Short-range fire stream in front of you. Hold longer for a longer flame. Pushes, then a final burst.', cd: 100,
+        N: { kind: 'breath', name: 'Flamethrower', desc: 'Omnidirectional fire stream aimed where you look (mouse / aim matrix). Hold longer for a longer flame. Pushes, then a final burst.', cd: 100,
              frames: 26, every: 5, w: [200, 330], h: 90, dmg: 3, lastDmg: 8, bkb: 9, kbg: 0.8 },
         S: { kind: 'dash', name: 'Flame Lunge', desc: 'A short fiery lunge that carries foes along, ending in a pillar of fire that throws them upward (5 + 9).', cd: 70, dist: 250, frames: 11, armor: false, flow: true, dmg: 5, bkb: 0, kbg: 0, w: 90, h: 90, ang: 0.95, lock: 22, end: { fwd: 60, pillar: true, w: 120, h: 230, dmg: 9, bkb: 12, kbg: 1.1, ang: -1.35 } },
         U: { kind: 'rocket', name: 'Phoenix Dash', desc: 'Turn into a fire rocket and fly where you aim, steering very sharply for 2.5 s. Foes you drill through are carried along and burnt (1.5 each hit, no knockback). When the rocket runs out it explodes: that blast knocks everyone back (12).', cd: 140, frames: 150, speed: 12, turn: 0.16, drill: true, maxHits: 8, dmg: 1.5, bkb: 0, kbg: 0, w: 130, h: 130, boom: { R: 170, dmg: 12, bkb: 12, kbg: 1.2 } },

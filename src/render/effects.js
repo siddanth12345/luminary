@@ -435,14 +435,32 @@ export class Effects {
                     this.star(pos, e.b ? 40 : 52, P[1], 0.12, 4);
                     break;
                 }
-                case 'flame': {          // a = signed length (sign = facing), b = 1 on the final burst
-                    const L = Math.abs(e.a || 200), dirx = (e.a || 1) < 0 ? -1 : 1, wa = dirx < 0 ? Math.PI : 0;
+                case 'flame': {          // a = aim angle (sim rad), b = +/- length (positive = final burst)
+                    // Legacy fallback: if |a| is large it was the old signed-length encoding
+                    let ang, L, last;
+                    if (Math.abs(e.a) > 6.5) {           // old format: a = signed length, b = 1 on final
+                        L = Math.abs(e.a || 200); ang = (e.a || 1) < 0 ? Math.PI : 0; last = !!e.b;
+                    } else {
+                        ang = e.a || 0; L = Math.abs(e.b || 200); last = (e.b || 0) > 0;
+                    }
+                    const dirx = Math.cos(ang), diry = Math.sin(ang);   // sim space (y down)
+                    const wa = -ang;                                   // three.js (y up)
                     for (let i = 0; i < 4; i++) {
-                        const p = pos.clone(); p.x += dirx * L * (0.2 + 0.7 * Math.random()); p.y += (Math.random() - 0.5) * 40;
+                        const t = 0.2 + 0.7 * Math.random();
+                        const p = pos.clone();
+                        p.x += dirx * L * t;
+                        p.y -= diry * L * t;                           // flip sim y -> three y
+                        p.y += (Math.random() - 0.5) * 40;
                         this.spray(p, wa + 0.2, i % 2 ? '#fb923c' : '#fde047', 3, 140 + L, 0.6, 0.35);
                         this.star(p, 26 + Math.random() * 26, i % 2 ? '#fb923c' : '#fef08a', 0.16, 4);
                     }
-                    if (e.b) { const p = pos.clone(); p.x += dirx * L * 0.85; this.star(p, 130, '#fb923c', 0.28); this.ring(p, 10, 110, 0.35, '#fde047', 'screen'); }
+                    if (last) {
+                        const p = pos.clone();
+                        p.x += dirx * L * 0.85;
+                        p.y -= diry * L * 0.85;
+                        this.star(p, 130, '#fb923c', 0.28);
+                        this.ring(p, 10, 110, 0.35, '#fde047', 'screen');
+                    }
                     break;
                 }
                 case 'rocket': {
